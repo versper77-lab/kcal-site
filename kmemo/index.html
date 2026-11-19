@@ -754,7 +754,7 @@ async function openSettings() {
   const acct = host ? (host.account || "연결 안 됨") : (LS.get("km_linked") ? "연결됨" : "연결 안 됨");
   const html = `<h3>설정</h3>
    <p>구글 드라이브: <b>${acct}</b><br>KMEMO 가 드라이브에서 쓰는 용량: <b>${use}</b> (구글 계정 15GB 안)<br>마지막 동기화: ${S.lastSync ? new Date(S.lastSync).toLocaleString("ko-KR") : "아직"}${DEMO ? "<br><b style='color:var(--warn)'>시험판 — 이 브라우저에만 저장됩니다</b>" : ""}</p>
-   ${host ? `<label>구글 클라이언트 ID (KCAL 과 같은 프로젝트의 데스크톱 앱)</label><input class="cid" value="${host.client_id || ""}"><label>클라이언트 보안 비밀번호</label><input class="sec" type="password" value="${host.has_secret ? "••••••••" : ""}"><div class="row" style="justify-content:flex-start"><button class="kcal">KCAL 에서 가져오기</button></div>` : ""}
+   ${host ? `<details ${host.ready ? "" : "open"} style="margin-top:8px"><summary style="cursor:pointer;color:var(--sub);font-size:13px">고급 — 구글 연결 정보${host.ready ? (host.builtin && !host.client_id ? " (프로그램에 들어 있음)" : "") : " (없음 — 넣어야 함)"}</summary><p>보통은 비워 두세요. 다른 구글 클라우드 프로젝트를 쓸 때만 넣습니다.</p><label>구글 클라이언트 ID (데스크톱 앱)</label><input class="cid" value="${host.client_id || ""}"><label>클라이언트 보안 비밀번호</label><input class="sec" type="password" value="${host.has_secret ? "••••••••" : ""}"><div class="row" style="justify-content:flex-start"><button class="kcal">KCAL 에서 가져오기</button></div></details>` : ""}
    ${host ? `<label>받아쓰기 모델</label><select class="model" style="width:100%"><option value="small" ${host.model === "small" ? "selected" : ""}>small — 빠름, 처음에 약 470MB 받음</option><option value="medium" ${host.model === "medium" ? "selected" : ""}>medium — 더 정확, 느림, 약 1.5GB</option></select>` : ""}
    <div class="row" style="justify-content:flex-start">${DEMO ? "" : `<button class="conn">${acct === "연결 안 됨" ? "구글 연결" : "다시 연결"}</button>${host && host.account ? '<button class="logout">연결 끊기</button>' : ""}<button class="lock">이 기기의 암호 지우기</button>`}</div>`;
   await dialog(html, async d => {
@@ -793,6 +793,27 @@ if (WEB) {
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
   loadGis().catch(() => {});
 }
+// ───────── 처음 시작: 구글 계정만 고르면 됨
+function welcome() {
+  return new Promise(ok => {
+    const d = document.createElement("div"); d.className = "dlg";
+    d.innerHTML = `<div class="box" style="text-align:center"><h3 style="font-size:20px">KMEMO</h3>
+      <p style="text-align:left">구글 계정으로 로그인하면 여러 PC 와 폰에서 같은 노트를 봅니다. 노트는 <b>그 계정의 구글 드라이브</b>(15GB 안, 숨은 앱 폴더)에 암호화되어 저장되고, 다른 사람은 볼 수 없습니다.</p>
+      <button class="pri go" style="width:100%;padding:12px;font-size:15px">구글 계정으로 시작</button>
+      <div class="err"></div>
+      <button class="later" style="margin-top:8px;background:none;border:0;color:var(--muted);cursor:pointer">나중에 — 이 기기에만 저장</button></div>`;
+    document.body.appendChild(d);
+    const done = v => { d.remove(); ok(v); };
+    d.querySelector(".later").onclick = () => { LS.set("km_later", "1"); done(false); };
+    d.querySelector(".go").onclick = () => {
+      d.querySelector(".err").textContent = "";
+      d.querySelector(".go").textContent = HOST ? "브라우저에서 계정을 고르세요…" : "로그인 창…";
+      // 폰 웹: 누르는 순간 바로 로그인 창 (await 앞)
+      token(true).then(() => { LS.set("km_later", ""); done(true); syncNow(true); })
+        .catch(e => { d.querySelector(".go").textContent = "구글 계정으로 시작"; d.querySelector(".err").textContent = "연결 실패: " + e.message; });
+    };
+  });
+}
 // ───────── 시작
 (async function start() {
   try { DB = await idb(); } catch (e) { DB = null; }
@@ -804,7 +825,12 @@ if (WEB) {
   if (DEMO && !S.notes.size) await demo();
   view("list"); renderAll();
   const first = filtered()[0]; if (first && innerWidth > 820) openNote(first.id);
-  if (DEMO) setStatus("off", "시험판 — 이 브라우저에만 저장"); else if (HOST || LS.get("km_linked")) syncNow(); else setStatus("off", WEB ? "⟳ 를 누르면 구글에 연결합니다" : "구글 드라이브 연결 안 됨 — ⚙ 설정");
+  if (WEB) loadGis().catch(() => {});
+  let linked = WEB && LS.get("km_linked");
+  if (HOST) { const h = await hostCall("info", {}); linked = !!(h && h.account); }
+  if (DEMO) setStatus("off", "시험판 — 이 브라우저에만 저장");
+  else if (linked) syncNow();
+  else { setStatus("off", "구글 계정 연결 안 됨 — ⟳ 를 누르면 연결합니다"); if (!LS.get("km_later")) welcome(); }
   setInterval(() => { if (!DEMO && !S.syncing && document.visibilityState === "visible") syncNow(); }, 5 * 60000);
 })();
 async function demo() {
