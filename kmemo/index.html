@@ -79,6 +79,7 @@ input:focus,select:focus{border-color:var(--acc)}
 #app{transition:grid-template-columns .18s ease}
 #app.hs #side,#app.hl #list{overflow:hidden;visibility:hidden}
 .showside{display:none !important}#app.hs .showside{display:inline-flex !important}
+.trashb{margin-left:8px;padding:2px 8px;font-size:11.5px;border-radius:6px;border:1px solid rgba(248,81,73,.4);color:#ff8a80;background:rgba(248,81,73,.08)}.trashb:hover{background:rgba(248,81,73,.2);color:#fff}
 .lhb{cursor:pointer;color:var(--muted)}.lhb:hover{color:var(--fg)}.lhb.on{color:var(--acc2)}
 #notes.compact .nt{padding:7px 12px 7px 14px;margin-bottom:1px}#notes.compact .nt .p,#notes.compact .nt .cs{display:none}
 #notes.compact .nt.sel:before{top:6px;bottom:6px}
@@ -536,7 +537,9 @@ function renderTree() {
   };
   walk(null, 0);
   t = grp("trash", "");
-  item("휴지통", [...S.notes.values()].filter(n => n.deleted).length, S.view.k === "trash", () => setView({ k: "trash" }), 0, "🗑");
+  const tct = [...S.notes.values()].filter(n => n.deleted && !n.purged).length;
+  const td = item("휴지통", tct, S.view.k === "trash", () => setView({ k: "trash" }), 0, "🗑");
+  td.oncontextmenu = e => { e.preventDefault(); menu(e.clientX, e.clientY, [["🗑 휴지통 비우기…", emptyTrash]]); };
 }
 async function newBook(parent) {
   const name = await askText(parent ? `「${bookName(parent)}」 안에 새 노트북` : "새 노트북", "이름", "");
@@ -571,7 +574,7 @@ function setView(v) { S.view = v; renderAll(); if (innerWidth <= 820) view("list
 function textOf(html) { const d = document.createElement("div"); d.innerHTML = (html || "").replace(/<\/(p|li|div|h\d|tr|td|th|blockquote|pre)>|<br\s*\/?>/gi, "$& "); return d.textContent.replace(/\s+/g, " ").trim(); }
 function shownTitle(n) { if (n.lock && n.lock.tt && !n._plain) return "🔒 잠긴 노트"; return (n.title || "").trim() || textOf(n.html).slice(0, 50) || (n.lock ? "🔒 잠긴 노트" : "(제목 없음)"); }
 function filtered() {
-  const v = S.view; let a = [...S.notes.values()].filter(n => v.k === "trash" ? n.deleted : !n.deleted);
+  const v = S.view; let a = [...S.notes.values()].filter(n => !n.purged && (v.k === "trash" ? n.deleted : !n.deleted));
   // 모든 노트 · 고정 · 최근 · 휴지통: 닫힌 잠긴 노트는 숨김 (노트북에 들어가야 보임)
   if (v.k !== "book") a = a.filter(n => !(n.lock && !n._plain));
   if (v.k === "pinned") a = a.filter(n => n.pinned);
@@ -587,7 +590,9 @@ function filtered() {
 function fmtDate(ms) { const d = new Date(ms), now = new Date(); const p = x => String(x).padStart(2, "0"); return d.toDateString() === now.toDateString() ? `${p(d.getHours())}:${p(d.getMinutes())}` : `${d.getFullYear() % 100}.${d.getMonth() + 1}.${d.getDate()}`; }
 function renderList() {
   const v = S.view, a = filtered();
+  $("lh").innerHTML = "";
   $("lh").textContent = (v.k === "all" ? "전체 노트" : v.k === "pinned" ? "고정한 노트" : v.k === "recent" ? "최근 7일" : v.k === "trash" ? "휴지통" : bookPath(v.id)) + ` · ${a.length}`;
+  if (v.k === "trash" && a.length) { const b = document.createElement("button"); b.className = "trashb"; b.textContent = "🗑 비우기"; b.title = "휴지통의 노트를 모두 완전히 지우기"; b.onclick = emptyTrash; $("lh").appendChild(b); }
   $("sortb").textContent = SORTS[S.sort] + " ⇅";
   const box = $("notes"); box.innerHTML = "";
   const lb = v.k === "book" ? bookLockOf(v.id) : null;
@@ -889,6 +894,23 @@ async function lockAll() {
 }
 function lockIdle() { clearTimeout(S.lockT); S.lockT = setTimeout(lockAll, 5 * 60000); }
 
+// 휴지통 비우기: 휴지통의 노트 · 그림 · 녹음을 모든 기기에서 한꺼번에 지움
+async function emptyTrash() {
+  const list = [...S.notes.values()].filter(n => n.deleted && !n.purged);
+  if (!list.length) { toast("휴지통이 비어 있습니다"); return; }
+  if (!(await askYes("휴지통 비우기", `휴지통의 노트 <b>${list.length}개</b>와 그 안의 그림 · 녹음을 <b>모든 기기에서</b> 지웁니다. 되돌릴 수 없습니다.`))) return;
+  let files = null; try { if (!DEMO) files = await dlist(); } catch (e) {}
+  let k = 0;
+  for (const n of list) {
+    for (const a of n.atts || []) { await tx("blobs", "readwrite", s => s.delete(a.id)); const f = files && files.get("b_" + a.id); if (f) { try { await ddel(f.id); } catch (e) {} } }
+    n.html = ""; n.title = ""; n.atts = []; delete n.enc; n.purged = true; n.updated = Date.now(); await putNote(n);
+    S.notes.delete(n.id); if (S.sel === n.id) S.sel = null;
+    if (++k % 10 === 0) setStatus("busy", `휴지통 비우는 중… ${k}/${list.length}`);
+  }
+  for (const n of list) S.notes.set(n.id, n);  // 지운 기록은 남겨 다른 기기도 지움 (내용 없음)
+  renderAll(); if (!S.sel) openNote(null);
+  syncSoon(500); toast(`휴지통의 노트 ${list.length}개를 완전히 지웠습니다`);
+}
 async function purge(n) {
   for (const a of n.atts || []) { await tx("blobs", "readwrite", s => s.delete(a.id)); try { const f = (await dlist()).get("b_" + a.id); if (f) await ddel(f.id); } catch (e) {} }
   n.html = ""; n.title = ""; n.atts = []; n.purged = true; n.updated = Date.now(); await putNote(n);
