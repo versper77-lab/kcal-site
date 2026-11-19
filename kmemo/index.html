@@ -733,10 +733,13 @@ async function renderAtts() {
   for (const a of (n && n.atts || []).filter(x => x.kind === "audio")) {
     const d = document.createElement("div"); d.className = "au";
     const u = await attUrl(a.id);
-    d.innerHTML = `<span style="color:#f87171;display:inline-flex">${MIC_SVG}</span><b style="font-weight:600"></b><span style="color:var(--muted);font-size:12px">${a.secs ? Math.floor(a.secs / 60) + ":" + String(a.secs % 60).padStart(2, "0") : ""}</span>${u ? `<audio controls preload="none" src="${u}"></audio>` : '<span style="color:var(--muted)">받는 중…</span>'}<span style="flex:1"></span>${HOST ? '<button class="tw">받아쓰기</button>' : ""}<button class="ico rm" title="빼기">✕</button>${a.transcript ? '<div class="tr"></div>' : ""}`;
+    d.innerHTML = `<span style="color:#f87171;display:inline-flex">${MIC_SVG}</span><b style="font-weight:600"></b><span style="color:var(--muted);font-size:12px">${a.secs ? Math.floor(a.secs / 60) + ":" + String(a.secs % 60).padStart(2, "0") : ""}</span>${u ? `<audio controls preload="none" src="${u}"></audio>` : '<span style="color:var(--muted)">받는 중…</span>'}<span style="flex:1"></span>${HOST ? '<button class="tw">받아쓰기</button>' : ""}${u ? '<button class="ico dl" title="녹음 파일로 내보내기 (다운로드 폴더)">⬇</button>' : ""}${a.transcript ? '<button class="ico cp" title="받아쓴 글 복사">⧉</button><button class="ico ins" title="받아쓴 글을 본문에 넣기">↧</button>' : ""}<button class="ico rm" title="빼기">✕</button>${a.transcript ? '<div class="tr"></div>' : ""}`;
     d.querySelector("b").textContent = a.name || "녹음";
     if (a.transcript) d.querySelector(".tr").textContent = a.transcript;
     const tw = d.querySelector(".tw"); if (tw) tw.onclick = () => transcribe(a);
+    const dl = d.querySelector(".dl"); if (dl) dl.onclick = async () => { const b = await blobGet(a.id); if (!b) { toast("아직 녹음을 받는 중입니다"); return; } const nm = (a.name || "녹음").replace(/[\\/:*?"<>|]/g, "_"); download(/\.[a-z0-9]{2,5}$/i.test(nm) ? nm : nm + "." + extOf(a.mime), b); toast("내보냄: " + nm); };
+    const cp = d.querySelector(".cp"); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(a.transcript); toast("받아쓴 글을 복사했습니다"); } catch (e) { toast("복사 실패: " + e.message); } };
+    const ins = d.querySelector(".ins"); if (ins) ins.onclick = () => { const b = $("body"); const p = document.createElement("div"); p.innerHTML = a.transcript.split(/\n+/).map(l => "<p>" + escH(l) + "</p>").join(""); b.append(...p.childNodes); touched(); toast("본문 끝에 넣었습니다"); };
     d.querySelector(".rm").onclick = async () => { if (await askYes("녹음 빼기", "이 녹음을 노트에서 뺄까요?")) { n.atts = n.atts.filter(x => x.id !== a.id); touchMeta(n); renderAtts(); } };
     if (u) { const cv = document.createElement("canvas"); cv.className = "wf"; d.insertBefore(cv, d.querySelector(".tr")); waveCard(a, u, cv, d.querySelector("audio")); }
     box.appendChild(d);
