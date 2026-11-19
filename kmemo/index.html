@@ -36,6 +36,11 @@ input:focus,select:focus{border-color:var(--acc)}
 .ti .ct{color:var(--muted);font-size:11.5px}
 .ti.drop{outline:2px dashed var(--acc)}
 .sep{height:10px}
+#quota{display:none;margin:8px 8px -2px;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,.03);font-size:11.5px;color:var(--muted)}
+#quota .ql{display:flex;justify-content:space-between;gap:6px}#quota .ql b{color:var(--sub);font-weight:600}
+#quota .qb{height:4px;border-radius:4px;background:rgba(255,255,255,.08);margin:6px 0 5px;overflow:hidden}
+#quota .qb i{display:block;height:100%;background:var(--acc);border-radius:4px}
+#quota.hi .qb i{background:var(--warn)}#quota.full .qb i{background:var(--bad)}
 #status{margin:8px;padding:6px 6px 6px 10px;border-radius:9px;background:rgba(255,255,255,.03);display:flex;align-items:center;gap:8px;font-size:12px}
 #status .badge{flex:1;min-width:0;display:flex;align-items:center;gap:7px;cursor:pointer;color:var(--sub);border-radius:6px}
 #status .badge:hover{color:var(--fg)}
@@ -166,6 +171,7 @@ input:focus,select:focus{border-color:var(--acc)}
  <aside id="side">
   <div class="top"><button class="ico back" onclick="view('list')">✕</button><b>KMEMO</b><button class="ico" title="설정" onclick="openSettings()">⚙</button></div>
   <div id="tree"></div>
+  <div id="quota" title=""><div class="ql"><span>구글 드라이브</span><b></b></div><div class="qb"><i></i></div><div class="qs"></div></div>
   <div id="status"><div class="badge" onclick="statusDetail()" title="자세히"><div class="dot"></div><span>로컬 저장됨</span></div><button class="ico rf" title="지금 동기화" onclick="userSync()">⟳</button></div>
  </aside>
  <section id="list">
@@ -344,6 +350,19 @@ function setStatus(kind, t) {
   const short = kind === "err" ? "동기화 오류 (상세 보기)" : kind === "ok" ? "동기화됨" + (S.lastSync ? " · " + fmtDate(S.lastSync) : "") : kind === "pw" ? "동기화 암호 필요" : kind === "busy" ? t : "로컬 저장됨";
   st.querySelector(".badge span").textContent = short; st.querySelector(".badge").title = t;
 }
+// 구글 계정 용량 (드라이브 · 지메일 · 사진 합계, 무료 15GB)
+function fmtSize(b) { b = +b || 0; return b >= 1073741824 ? (b / 1073741824).toFixed(b >= 10737418240 ? 0 : 1) + " GB" : b >= 1048576 ? (b / 1048576).toFixed(0) + " MB" : Math.ceil(b / 1024) + " KB"; }
+function showQuota(q) {
+  const el = $("quota"); if (!q || DEMO) { el.style.display = "none"; return; }
+  const lim = +q.limit || 0, use = +q.usage || 0;
+  el.style.display = "block";
+  el.querySelector("b").textContent = lim ? fmtSize(lim - use) + " 남음" : "무제한";
+  const pc = lim ? Math.min(100, use / lim * 100) : 0;
+  el.querySelector("i").style.width = pc.toFixed(1) + "%";
+  el.className = pc >= 95 ? "full" : pc >= 80 ? "hi" : "";
+  el.querySelector(".qs").textContent = `${fmtSize(use)} / ${lim ? fmtSize(lim) : "∞"} 사용 · KMEMO ${fmtSize(q.km)}`;
+  el.title = `드라이브 ${fmtSize(q.usageInDrive)} · 휴지통 ${fmtSize(q.usageInDriveTrash)} · 지메일 · 사진 포함 ${fmtSize(use)}`;
+}
 function statusDetail() {
   const k = { ok: "동기화됨", busy: "동기화 중", err: "동기화 오류", pw: "동기화 암호 필요", off: "로컬 저장됨 (구글 드라이브 연결 안 됨)" }[S.stKind] || "로컬 저장됨";
   const msg = (S.status || "").replace(/</g, "&lt;");
@@ -428,6 +447,7 @@ async function syncNow(user) {
     }
     S.lastSync = Date.now(); await kvSet("lastSync", S.lastSync);
     S.driveUse = [...files.values()].reduce((s, f) => s + f.size, 0);
+    try { const q = (await (await gfetch(`${API}/about?fields=storageQuota`)).json()).storageQuota; if (q) { q.km = S.driveUse; LS.set("km_quota", JSON.stringify(q)); showQuota(q); } } catch (e) {}
     setStatus("ok", got + sent ? `동기화됨 (받음 ${got} · 보냄 ${sent})` : "동기화됨");
     if (got) { renderAll(); if (S.sel && !S.dirty) openNote(S.sel, true); }
   } catch (e) {
@@ -951,7 +971,7 @@ document.addEventListener("click", async e => {
     if (HOST && box.querySelector(".cid")) { const sec = box.querySelector(".sec").value; await hostCall("creds", { client_id: box.querySelector(".cid").value.trim(), secret: sec.startsWith("••") ? null : sec }); }
     S.token = null; LS.set("km_tok", ""); try { await token(true); toast("구글에 연결했습니다"); e.target.closest(".dlg").remove(); syncNow(); } catch (x) { toast("연결 실패: " + x.message); }
   }
-  if (e.target.classList.contains("logout")) { await hostCall("logout", {}); S.token = null; toast("구글 연결을 끊었습니다"); e.target.closest(".dlg").remove(); setStatus("off", "구글 드라이브 연결 안 됨 — ⚙ 설정"); }
+  if (e.target.classList.contains("logout")) { await hostCall("logout", {}); S.token = null; toast("구글 연결을 끊었습니다"); LS.set("km_quota", ""); showQuota(null); e.target.closest(".dlg").remove(); setStatus("off", "구글 드라이브 연결 안 됨 — ⚙ 설정"); }
   if (e.target.classList.contains("lock")) { await kvSet("key", null); S.key = null; toast("이 기기의 암호를 지웠습니다 — 다음 동기화 때 다시 묻습니다"); }
 });
 
@@ -1098,6 +1118,7 @@ function welcome() {
   for (const n of all || []) if (!n.purged) S.notes.set(n.id, n);
   const b = await kvGet("books"); if (b) { S.books = b.books || []; S.booksU = b.u || 0; }
   S.lastSync = await kvGet("lastSync");
+  try { const q = JSON.parse(LS.get("km_quota") || "null"); if (q && (HOST || LS.get("km_linked"))) showQuota(q); } catch (e) {}
   const raw = await kvGet("key"); if (raw) S.key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
   if (DEMO && !S.notes.size) await demo();
   view("list"); renderAll();
