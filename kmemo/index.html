@@ -1080,7 +1080,7 @@ function pickAudio() { const f = document.createElement("input"); f.type = "file
 function recMenu(btn) {
   if (S.rec) { toggleRec(); return; }
   const r = btn.getBoundingClientRect();
-  menu(r.left, r.bottom + 4, [["🔴 녹음 시작", () => toggleRec()], ["📂 녹음 파일 넣기 (mp3 · m4a · wav …)", pickAudio]]);
+  menu(r.left, r.bottom + 4, [["🔴 녹음 시작", () => toggleRec()], ["📂 녹음 파일 넣기 (mp3 · m4a · wav 등)", pickAudio]]);
 }
 async function shrink(file) {
   // 큰 사진은 긴 변 2560 · JPEG 0.85 로
@@ -1212,7 +1212,7 @@ async function transcribe(a) {
 // ───────── 작은 창 · 메뉴
 let POP = null;
 function closePop() { if (POP) { POP.remove(); POP = null; } }
-function popup(x, y) { closePop(); const p = document.createElement("div"); p.className = "pop"; p.style.left = Math.min(x, innerWidth - 220) + "px"; p.style.top = Math.min(y, innerHeight - 60) + "px"; document.body.appendChild(p); POP = p; setTimeout(() => p.style.top = Math.max(4, Math.min(y, innerHeight - p.offsetHeight - 4)) + "px"); return p; }
+function popup(x, y) { closePop(); const p = document.createElement("div"); p.className = "pop"; p.style.left = Math.min(x, innerWidth - 220) + "px"; p.style.top = Math.min(y, innerHeight - 60) + "px"; document.body.appendChild(p); POP = p; setTimeout(() => { p.style.top = Math.max(4, Math.min(y, innerHeight - p.offsetHeight - 4)) + "px"; p.style.left = Math.max(4, Math.min(x, innerWidth - p.offsetWidth - 6)) + "px"; }); return p; }
 function menu(x, y, items) {
   const p = popup(x, y);
   for (const it of items) { if (!it) { const s = document.createElement("div"); s.className = "ms"; p.appendChild(s); continue; }
