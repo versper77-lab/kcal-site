@@ -531,8 +531,7 @@ function renderTree() {
     const kids = S.books.filter(b => (b.parent || null) === parent).sort((a, b) => a.name.localeCompare(b.name, "ko"));
     for (const b of kids) {
       const hasKids = S.books.some(x => x.parent === b.id);
-      const ids = descendants(b.id);
-      const ct = live.filter(n => ids.includes(n.book)).length;
+      const ct = live.filter(n => n.book === b.id).length;
       const open = S.open.has(b.id);
       const d = item(b.name + (b.lock ? (bookOpen(b) ? " 🔓" : " 🔒") : ""), ct, S.view.k === "book" && S.view.id === b.id, () => setView({ k: "book", id: b.id }), depth, hasKids ? "▶" : "", b);
       d.querySelector(".tw").onclick = e => { e.stopPropagation(); open ? S.open.delete(b.id) : S.open.add(b.id); LS.set("km_open", JSON.stringify([...S.open])); renderTree(); };
@@ -590,7 +589,8 @@ function filtered() {
   if (v.k !== "book") a = a.filter(n => !(n.lock && !n._plain));
   if (v.k === "pinned") a = a.filter(n => n.pinned);
   if (v.k === "recent") a = a.filter(n => n.updated > Date.now() - 7 * 864e5);
-  if (v.k === "book") { const ids = descendants(v.id); a = a.filter(n => ids.includes(n.book)); }
+  // 노트북: 그 노트북에 바로 든 노트만 (하위 노트북 노트는 그 하위를 눌러서)
+  if (v.k === "book") a = a.filter(n => n.book === v.id);
   const q = S.q.toLowerCase().split(/\s+/).filter(Boolean);
   if (q.length) a = a.filter(n => { const h = ((n.title || "") + " " + textOf(n.html) + " " + (n.atts || []).map(x => (x.name || "") + " " + (x.transcript || "")).join(" ")).toLowerCase(); return q.every(w => h.includes(w)); });
   const ord = n => n.id in S.order ? S.order[n.id] : 1e12 - n.updated / 1000;
