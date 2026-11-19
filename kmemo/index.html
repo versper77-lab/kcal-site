@@ -737,7 +737,7 @@ async function renderAtts() {
     d.querySelector("b").textContent = a.name || "녹음";
     if (a.transcript) d.querySelector(".tr").textContent = a.transcript;
     const tw = d.querySelector(".tw"); if (tw) tw.onclick = () => transcribe(a);
-    const dl = d.querySelector(".dl"); if (dl) dl.onclick = async () => { const b = await blobGet(a.id); if (!b) { toast("아직 녹음을 받는 중입니다"); return; } const nm = (a.name || "녹음").replace(/[\\/:*?"<>|]/g, "_"); download(/\.[a-z0-9]{2,5}$/i.test(nm) ? nm : nm + "." + extOf(a.mime), b); toast("내보냄: " + nm); };
+    const dl = d.querySelector(".dl"); if (dl) dl.onclick = () => exportAudio(a, dl);
     const cp = d.querySelector(".cp"); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(a.transcript); toast("받아쓴 글을 복사했습니다"); } catch (e) { toast("복사 실패: " + e.message); } };
     const ins = d.querySelector(".ins"); if (ins) ins.onclick = () => { const b = $("body"); const p = document.createElement("div"); p.innerHTML = a.transcript.split(/\n+/).map(l => "<p>" + escH(l) + "</p>").join(""); b.append(...p.childNodes); touched(); toast("본문 끝에 넣었습니다"); };
     d.querySelector(".rm").onclick = async () => { if (await askYes("녹음 빼기", "이 녹음을 노트에서 뺄까요?")) { n.atts = n.atts.filter(x => x.id !== a.id); touchMeta(n); renderAtts(); } };
@@ -1145,7 +1145,8 @@ async function toggleRec() {
   const want = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(dev ? { deviceId: { exact: dev } } : {}) };
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: want }); }
   catch (e) { try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e2) { toast("마이크를 쓸 수 없습니다: " + e2.message); return; } }
-  const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+  // m4a(AAC) 먼저: 휴대폰 · 카톡 · 윈도 어디서나 재생. 안 되는 브라우저는 webm(Opus)
+  const mime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
   const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : {}); const chunks = []; const t0 = Date.now(); const nid = S.sel;
   // 소리 크기 (들어오는지 보이게) — 5초 동안 거의 0 이면 알림
   let ac = null, an = null, buf = null, peak = 0;
@@ -1171,6 +1172,28 @@ async function toggleRec() {
     recLabel(`<span>${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}</span><span class="lv"><i style="width:${Math.min(100, Math.round(lv * 160))}%"></i></span><span>■</span>`);
     if (!warned && s >= 5 && an && peak < 0.01) { warned = true; toast(`마이크 「${micName}」 에서 소리가 안 들어옵니다 — 마이크가 꺼져 있거나 다른 마이크일 수 있습니다`); }
   }, 80);
+}
+// 녹음 내보내기: 원본 그대로 / WAV(어디서나 재생 · 크기 큼)
+function exportAudio(a, btn) {
+  const base = (a.name || "녹음").replace(/[\\/:*?"<>|]/g, "_").replace(/\.[a-z0-9]{2,5}$/i, ""), ext = extOf(a.mime);
+  const r = btn.getBoundingClientRect();
+  menu(r.left, r.bottom + 4, [
+    [`원본 그대로 (.${ext}) — 크기 작음${ext === "webm" ? " · 일부 휴대폰은 못 엶" : ""}`, async () => { const b = await blobGet(a.id); if (!b) { toast("아직 녹음을 받는 중입니다"); return; } download(base + "." + ext, b); }],
+    ["WAV (.wav) — 어디서나 재생 · 1시간 약 160MB", async () => {
+      const b = await blobGet(a.id); if (!b) { toast("아직 녹음을 받는 중입니다"); return; }
+      toast("WAV 로 바꾸는 중…");
+      try {
+        const ac = new (window.AudioContext || window.webkitAudioContext)(); const au = await ac.decodeAudioData(await b.arrayBuffer()); ac.close();
+        const sr = 22050, oc = new OfflineAudioContext(1, Math.ceil(au.duration * sr), sr), src = oc.createBufferSource(); src.buffer = au; src.connect(oc.destination); src.start();
+        const out = (await oc.startRendering()).getChannelData(0), pcm = new Int16Array(out.length);
+        for (let i = 0; i < out.length; i++) { const v = Math.max(-1, Math.min(1, out[i])); pcm[i] = v < 0 ? v * 32768 : v * 32767; }
+        const h = new DataView(new ArrayBuffer(44)), w = (o, t) => [...t].forEach((c, i) => h.setUint8(o + i, c.charCodeAt(0)));
+        w(0, "RIFF"); h.setUint32(4, 36 + pcm.length * 2, true); w(8, "WAVE"); w(12, "fmt "); h.setUint32(16, 16, true); h.setUint16(20, 1, true); h.setUint16(22, 1, true);
+        h.setUint32(24, sr, true); h.setUint32(28, sr * 2, true); h.setUint16(32, 2, true); h.setUint16(34, 16, true); w(36, "data"); h.setUint32(40, pcm.length * 2, true);
+        download(base + ".wav", new Blob([h.buffer, pcm.buffer], { type: "audio/wav" }));
+      } catch (e) { toast("WAV 로 바꾸지 못했습니다: " + e.message); }
+    }],
+  ]);
 }
 async function addAudio(blob, name, secs, nid) {
   const n = S.notes.get(nid || S.sel); if (!n) return;
