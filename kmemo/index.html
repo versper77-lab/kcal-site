@@ -1146,7 +1146,7 @@ async function toggleRec() {
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: want }); }
   catch (e) { try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e2) { toast("마이크를 쓸 수 없습니다: " + e2.message); return; } }
   // m4a(AAC) 먼저: 휴대폰 · 카톡 · 윈도 어디서나 재생. 안 되는 브라우저는 webm(Opus)
-  const mime = ["audio/mp4;codecs=mp4a.40.2", "audio/mp4", "audio/webm;codecs=opus", "audio/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+  const mime = ["audio/mp4;codecs=mp4a.40.2", "audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
   const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : {}); const chunks = []; const t0 = Date.now(); const nid = S.sel;
   // 소리 크기 (들어오는지 보이게) — 5초 동안 거의 0 이면 알림
   let ac = null, an = null, buf = null, peak = 0;
