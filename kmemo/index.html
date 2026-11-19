@@ -127,7 +127,8 @@ input:focus,select:focus{border-color:var(--acc)}
 #tbl .del{color:var(--bad)}
 #foot{position:absolute;right:16px;bottom:8px;font-size:11.5px;color:var(--muted);background:var(--panel);padding:2px 8px;border-radius:6px;pointer-events:none;opacity:.85}
 #lockp{flex:1;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--sub);min-height:300px}
-#lockp input{width:150px;text-align:center;font-size:22px;letter-spacing:10px}
+#lockp input,#notes input[type=password]{width:150px;text-align:center;font-size:22px;letter-spacing:10px}
+#lockp input::placeholder,#notes input[type=password]::placeholder{letter-spacing:0;font-size:14px}
 #lockp .err{color:var(--bad);font-size:13px;min-height:18px}
 #empty{flex:1;display:flex;flex-direction:column;gap:8px;align-items:center;justify-content:center;color:var(--muted)}
 .pop{position:fixed;z-index:20;background:#262A32;border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.45);padding:5px;min-width:170px;max-height:70vh;overflow:auto}
@@ -221,7 +222,7 @@ const WEB = !HOST && !DEMO;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 const enc = new TextEncoder(), dec = new TextDecoder();
-const S = { notes: new Map(), keys: new Map(), lockT: 0, vlast: new Map(), books: [], booksU: 0, cur: null, sel: null, view: { k: "all" }, q: "", sort: 0, key: null, token: null, tokenExp: 0,
+const S = { notes: new Map(), keys: new Map(), saltKeys: new Map(), lockT: 0, vlast: new Map(), books: [], booksU: 0, cur: null, sel: null, view: { k: "all" }, q: "", sort: 0, key: null, token: null, tokenExp: 0,
   open: new Set(JSON.parse(LS.get("km_open") || "[]")), urls: new Map(), dirty: false, saveT: 0, syncT: 0, syncing: false, status: "", stKind: "off", rec: null };
 
 // ───────── IndexedDB
@@ -491,7 +492,7 @@ function renderTree() {
       const ids = descendants(b.id);
       const ct = live.filter(n => ids.includes(n.book)).length;
       const open = S.open.has(b.id);
-      const d = item(b.name, ct, S.view.k === "book" && S.view.id === b.id, () => setView({ k: "book", id: b.id }), depth, hasKids ? (open ? "▾" : "▸") : "", b);
+      const d = item(b.name + (b.lock ? (bookOpen(b) ? " 🔓" : " 🔒") : ""), ct, S.view.k === "book" && S.view.id === b.id, () => setView({ k: "book", id: b.id }), depth, hasKids ? (open ? "▾" : "▸") : "", b);
       d.querySelector(".tw").onclick = e => { e.stopPropagation(); open ? S.open.delete(b.id) : S.open.add(b.id); LS.set("km_open", JSON.stringify([...S.open])); renderTree(); };
       if (hasKids && open) walk(b.id, depth + 1);
     }
@@ -510,6 +511,8 @@ function bookMenu(e, b) {
   menu(e.clientX, e.clientY, [
     ["이 노트북에 새 노트", () => { setView({ k: "book", id: b.id }); newNote(); }],
     ["하위 노트북 만들기…", () => newBook(b.id)],
+    ...(b.lock ? [bookOpen(b) ? ["🔒 지금 잠그기", () => lockAll()] : ["🔓 비밀번호로 열기…", () => setView({ k: "book", id: b.id })], ["노트북 비밀번호 풀기…", () => removeBookLock(b)]]
+              : bookLockOf(b.parent) ? [] : [["🔒 노트북 비밀번호 걸기…", () => setBookLock(b)]]),
     ["이름 바꾸기…", async () => { const n = await askText("이름 바꾸기", "이름", b.name); if (n) { b.name = n; saveBooks(); renderAll(); } }],
     ["맨 위로 꺼내기", () => { b.parent = null; saveBooks(); renderAll(); }, !b.parent],
     null,
@@ -528,7 +531,7 @@ function cycleSort() { S.sort = (S.sort + 1) % 3; renderList(); }
 function setQ(v) { S.q = v; renderList(); }
 function setView(v) { S.view = v; renderAll(); if (innerWidth <= 820) view("list"); }
 function textOf(html) { const d = document.createElement("div"); d.innerHTML = (html || "").replace(/<\/(p|li|div|h\d|tr|td|th|blockquote|pre)>|<br\s*\/?>/gi, "$& "); return d.textContent.replace(/\s+/g, " ").trim(); }
-function shownTitle(n) { return (n.title || "").trim() || textOf(n.html).slice(0, 50) || (n.lock ? "🔒 잠긴 노트" : "(제목 없음)"); }
+function shownTitle(n) { if (n.lock && n.lock.tt && !n._plain) return "🔒 잠긴 노트"; return (n.title || "").trim() || textOf(n.html).slice(0, 50) || (n.lock ? "🔒 잠긴 노트" : "(제목 없음)"); }
 function filtered() {
   const v = S.view; let a = [...S.notes.values()].filter(n => v.k === "trash" ? n.deleted : !n.deleted);
   if (v.k === "pinned") a = a.filter(n => n.pinned);
@@ -546,6 +549,15 @@ function renderList() {
   $("lh").textContent = (v.k === "all" ? "모든 노트" : v.k === "pinned" ? "고정한 노트" : v.k === "recent" ? "최근 7일" : v.k === "trash" ? "휴지통" : bookPath(v.id)) + ` · ${a.length}`;
   $("sortb").textContent = SORTS[S.sort] + " ⇅";
   const box = $("notes"); box.innerHTML = "";
+  const lb = v.k === "book" ? bookLockOf(v.id) : null;
+  if (lb && !bookOpen(lb)) {
+    box.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:50px 10px;color:var(--sub)"><div style="font-size:36px">🔒</div><div>비밀번호가 걸린 노트북입니다</div><input type="password" inputmode="numeric" maxlength="4" placeholder="숫자 4자리" style="width:150px;text-align:center;font-size:20px;letter-spacing:8px"><div class="err" style="color:var(--bad);font-size:13px;min-height:18px"></div></div>`;
+    const i = box.querySelector("input"), er = box.querySelector(".err");
+    const go = async () => { if (!/^\d{4}$/.test(i.value)) return; er.textContent = "여는 중…"; if (!(await unlockBook(lb, i.value, er))) { i.value = ""; i.focus(); } };
+    i.oninput = () => { if (i.value.length === 4) go(); }; i.onkeydown = e => { if (e.key === "Enter") go(); };
+    if (S.sel) { const sn = S.notes.get(S.sel); if (sn && descendants(lb.id).includes(sn.book)) { S.sel = null; $("body").innerHTML = ""; renderEditorMeta(); } }
+    setTimeout(() => i.focus(), 30); return;
+  }
   if (!a.length) box.innerHTML = `<div style="color:var(--muted);padding:16px 10px">${S.q ? "찾는 노트가 없습니다" : v.k === "trash" ? "휴지통이 비었습니다" : "노트가 없습니다 — ＋ 를 누르세요"}</div>`;
   for (const n of a) {
     const d = document.createElement("div"); d.className = "nt" + (n.id === S.sel ? " sel" : "");
@@ -612,6 +624,7 @@ function renderEditorMeta() {
   if (n.deleted) chip("휴지통에 있음", "lk");
   $("body").contentEditable = $("title").readOnly = n.deleted ? "false" : "true"; $("title").readOnly = !!n.deleted;
   const closed = !!(n.lock && !n._plain);
+  $("title").placeholder = closed && n.lock.tt ? "🔒 잠긴 노트" : "제목 없음";
   $("lockp").style.display = closed ? "flex" : "none"; $("body").style.display = closed ? "none" : "";
   $("tb").style.visibility = closed ? "hidden" : ""; if (closed) { $("title").readOnly = true; const i = $("lockp").querySelector("input"); i.value = ""; $("lockp").querySelector(".err").textContent = ""; setTimeout(() => i.focus(), 30); }
 }
@@ -664,10 +677,16 @@ async function newNote() {
   const now = Date.now();
   const n = { id: rid(), title: "", html: "", book: S.view.k === "book" ? S.view.id : null, pinned: S.view.k === "pinned", created: now, updated: now, deleted: false, atts: [] };
   if (S.view.k === "trash" || S.view.k === "recent") setView({ k: "all" });
+  const lb = n.book && bookLockOf(n.book);
+  if (lb) { if (!bookOpen(lb)) { toast("노트북 비밀번호로 먼저 여세요"); return; } S.notes.set(n.id, n); await lockIntoBook(n, lb); }
   S.notes.set(n.id, n); await putNote(n); S.q = ""; $("q").value = "";
   renderAll(); await openNote(n.id); $("title").focus();
 }
-async function moveNote(id, book) { const n = S.notes.get(id); if (!n) return; await saveNow(); n.book = book; await touchMeta(n); toast("「" + (book ? bookName(book) : "노트북 없음") + "」 으로 옮김"); }
+async function moveNote(id, book) {
+  const n = S.notes.get(id); if (!n) return; await saveNow();
+  const lb = book && bookLockOf(book);
+  if (lb) { if (!bookOpen(lb)) { toast("그 노트북을 비밀번호로 먼저 여세요"); return; } if (n.lock && !n._plain) { toast("이 노트의 비밀번호로 먼저 여세요"); return; } }
+  n.book = book; if (lb) await lockIntoBook(n, lb); await touchMeta(n); toast("「" + (book ? bookName(book) : "노트북 없음") + "」 으로 옮김"); }
 function togglePin() { const n = S.notes.get(S.sel); if (n) { n.pinned = !n.pinned; touchMeta(n); } }
 function moveMenu(el) {
   if (!S.sel) return; const r = el.getBoundingClientRect();
@@ -702,29 +721,72 @@ function noteMenu(el, ev) {
 // ───────── 노트 비밀번호 (숫자 4자리) — 내용 · 받아쓰기를 비밀번호로 한 번 더 암호화, 열 때만 풂
 // 잠긴 노트: lock {salt, iter}, enc = KM1 암호문(b64) {h: html, t: {첨부id: 받아쓰기}}. 연 동안만 메모리에 _plain
 async function lockedForm(n) {
-  const k = S.keys.get(n.id);
+  const k = S.keys.get(n.id) || (n.lock && S.saltKeys.has(n.lock.salt) ? { key: S.saltKeys.get(n.lock.salt), salt: n.lock.salt } : null);
   if (n._plain && k) {
     const t = {}; for (const a of n.atts || []) if (a.transcript) t[a.id] = a.transcript;
-    n.enc = b64(await seal(k.key, enc.encode(JSON.stringify({ h: n.html || "", t }))));
+    const pl = { h: n.html || "", t }; if (n.lock.tt) pl.ti = n.title || "";
+    n.enc = b64(await seal(k.key, enc.encode(JSON.stringify(pl))));
   }
   const { _plain, ...o } = n;
-  return { ...o, html: "", atts: (n.atts || []).map(a => { const { transcript, ...b } = a; return b; }) };
+  return { ...o, html: "", ...(n.lock.tt ? { title: "" } : {}), atts: (n.atts || []).map(a => { const { transcript, ...b } = a; return b; }) };
 }
 async function openWith(n, key) {
   const j = JSON.parse(dec.decode(await unseal(key, unb64(n.enc || ""))));
   n.html = j.h || ""; for (const a of n.atts || []) if (j.t && j.t[a.id]) a.transcript = j.t[a.id];
-  n._plain = true; S.keys.set(n.id, { key, salt: n.lock.salt });
+  if (j.ti != null) n.title = j.ti;
+  n._plain = true; S.keys.set(n.id, { key, salt: n.lock.salt }); S.saltKeys.set(n.lock.salt, key);
 }
 async function tryOpenLocked(n) {
-  const k = S.keys.get(n.id);
-  if (k && k.salt === n.lock.salt) { try { await openWith(n, k.key); } catch (e) { S.keys.delete(n.id); } }
+  const k = S.keys.get(n.id), sk = S.saltKeys.get(n.lock.salt);
+  const key = k && k.salt === n.lock.salt ? k.key : sk;
+  if (key) { try { await openWith(n, key); } catch (e) { S.keys.delete(n.id); } }
+}
+// 같은 비밀번호(salt)로 잠긴 노트를 한꺼번에 엶 (노트북 비밀번호)
+async function openSalt(salt, key) {
+  S.saltKeys.set(salt, key);
+  for (const n of S.notes.values()) if (n.lock && n.lock.salt === salt && !n._plain) { try { await openWith(n, key); } catch (e) {} }
+  lockIdle();
+}
+// ───────── 노트북 비밀번호: 노트북(하위 포함) 안 노트의 제목 · 내용을 같은 4자리로 잠금
+function bookLockOf(id) { let b = S.books.find(x => x.id === id); while (b) { if (b.lock) return b; b = S.books.find(x => x.id === b.parent); } return null; }
+const bookOpen = b => !!(b && b.lock && S.saltKeys.has(b.lock.salt));
+async function lockIntoBook(n, lb) {
+  // 노트를 노트북 비밀번호로 잠금 (열 수 있는 노트만)
+  if (n.lock && n.lock.salt === lb.lock.salt) return true;
+  if (n.lock && !n._plain) return false;
+  n.lock = { salt: lb.lock.salt, iter: lb.lock.iter || ITER, tt: true }; n._plain = true;
+  S.keys.set(n.id, { key: S.saltKeys.get(lb.lock.salt), salt: lb.lock.salt });
+  n.updated = Date.now(); await putNote(n); return true;
+}
+async function setBookLock(b) {
+  await saveNow();
+  const pin = await askPin("노트북 비밀번호 걸기", `「${escH(b.name)}」${S.books.some(x => x.parent === b.id) ? " 과 하위 노트북" : ""} 안 노트의 <b>제목과 내용</b>을 이 비밀번호로 잠급니다. 노트북을 열 때 한 번만 넣으면 안의 노트가 모두 열리고, 5분 동안 안 쓰면 다시 잠깁니다. 앞으로 이 노트북에 만드는 · 옮기는 노트도 같이 잠깁니다. <b>잊으면 아무도 열 수 없습니다.</b>`);
+  if (!pin) return;
+  const salt = crypto.getRandomValues(new Uint8Array(16)), key = await derive(pin, salt, ITER);
+  b.lock = { salt: b64(salt), iter: ITER, check: b64(await seal(key, enc.encode("KMEMO-BOOK"))) };
+  S.saltKeys.set(b.lock.salt, key);
+  const ids = descendants(b.id); let done = 0, skip = 0;
+  for (const n of liveNotes().filter(n => ids.includes(n.book))) { if (await lockIntoBook(n, b)) done++; else skip++; }
+  saveBooks(); renderAll(); lockIdle(); syncSoon(2000);
+  toast(`🔒 노트 ${done}개를 잠갔습니다${skip ? ` (따로 비밀번호가 걸린 닫힌 노트 ${skip}개는 그대로)` : ""}`);
+}
+async function removeBookLock(b) {
+  if (!bookOpen(b)) { toast("먼저 노트북 비밀번호로 여세요"); return; }
+  if (!(await askYes("노트북 비밀번호 풀기", `「${escH(b.name)}」 의 비밀번호를 없앱니다. 안의 노트가 모든 기기에서 그냥 열립니다.`))) return;
+  await saveNow();
+  for (const n of S.notes.values()) if (n.lock && n.lock.salt === b.lock.salt && n._plain) { delete n.lock; delete n.enc; delete n._plain; S.keys.delete(n.id); n.updated = Date.now(); await putNote(n); }
+  delete b.lock; saveBooks(); renderAll(); toast("노트북 비밀번호를 풀었습니다");
+}
+async function unlockBook(b, pin, errEl) {
+  try { const key = await derive(pin, unb64(b.lock.salt), b.lock.iter || ITER); if (dec.decode(await unseal(key, unb64(b.lock.check))) !== "KMEMO-BOOK") throw 0; await openSalt(b.lock.salt, key); renderAll(); if (S.sel) openNote(S.sel, true, true); return true; }
+  catch (e) { if (errEl) errEl.textContent = "비밀번호가 틀렸습니다"; return false; }
 }
 async function unlockNote() {
   const n = S.notes.get(S.sel); if (!n || !n.lock) return;
   const box = $("lockp"), i = box.querySelector("input"), pin = i.value;
   if (!/^\d{4}$/.test(pin)) { box.querySelector(".err").textContent = "숫자 4자리를 넣으세요"; return; }
   box.querySelector(".err").textContent = "여는 중…";
-  try { const key = await derive(pin, unb64(n.lock.salt), n.lock.iter || ITER); await openWith(n, key); openNote(n.id, false, true); }
+  try { const key = await derive(pin, unb64(n.lock.salt), n.lock.iter || ITER); await openWith(n, key); if (n.lock.tt) await openSalt(n.lock.salt, key); openNote(n.id, false, true); renderAll(); }
   catch (e) { i.value = ""; box.querySelector(".err").textContent = "비밀번호가 틀렸습니다"; i.focus(); }
 }
 const askPin = (title, body) => dialog(`<h3>${title}</h3><p>${body}</p><label>비밀번호 (숫자 4자리)</label><input type="password" inputmode="numeric" maxlength="4" class="a"><label>한 번 더</label><input type="password" inputmode="numeric" maxlength="4" class="b">`,
@@ -743,8 +805,9 @@ async function removeLock(n) {
 }
 async function lockAll() {
   await saveNow(); clearTimeout(S.lockT);
-  for (const n of S.notes.values()) if (n.lock && n._plain) { await putNote(n); n.html = ""; for (const a of n.atts || []) delete a.transcript; delete n._plain; }
-  S.keys.clear(); if (S.sel) openNote(S.sel, false, true); else renderList();
+  for (const n of S.notes.values()) if (n.lock && n._plain) { await putNote(n); n.html = ""; if (n.lock.tt) n.title = ""; for (const a of n.atts || []) delete a.transcript; delete n._plain; }
+  for (const n of S.notes.values()) if (n.lock && n.lock.tt && !n._plain) n.title = "";
+  S.keys.clear(); S.saltKeys.clear(); if (S.sel) openNote(S.sel, false, true); renderAll();
 }
 function lockIdle() { clearTimeout(S.lockT); S.lockT = setTimeout(lockAll, 5 * 60000); }
 
