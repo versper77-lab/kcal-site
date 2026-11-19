@@ -220,7 +220,7 @@ input:focus,select:focus{border-color:var(--acc)}
    <button class="ico" title="굵게 (Ctrl+B)" onclick="cmd('bold')"><b>B</b></button><button class="ico" title="기울임 (Ctrl+I)" onclick="cmd('italic')"><i>I</i></button><button class="ico" title="밑줄 (Ctrl+U)" onclick="cmd('underline')"><u>U</u></button><button class="ico" title="취소선" onclick="cmd('strikeThrough')"><s>S</s></button>
    <button class="ico" title="글자색" onclick="colorMenu(this,'foreColor')"><span style="border-bottom:3px solid #ff6b6b">A</span></button><button class="ico" title="형광펜" onclick="colorMenu(this,'hiliteColor')"><span style="background:#ffe066;color:#222;padding:0 3px">H</span></button><div class="g"></div>
    <button class="ico" title="글머리 목록" onclick="cmd('insertUnorderedList')">•≡</button><button class="ico" title="번호 목록" onclick="cmd('insertOrderedList')">1≡</button><button class="ico" title="체크리스트" onclick="checklist()">☑</button><div class="g"></div>
-   <button class="ico" title="표 넣기" onclick="tableMenu(this)">▦</button><button class="ico" title="그림 넣기" onclick="pickImage()">🖼</button><button class="ico" title="구분선" onclick="cmd('insertHorizontalRule')">―</button><button class="ico" title="링크" onclick="link()">🔗</button><button class="ico" id="recb" title="녹음" onclick="toggleRec()">🎙</button><div class="g"></div>
+   <button class="ico" title="표 넣기" onclick="tableMenu(this)">▦</button><button class="ico" title="그림 넣기" onclick="pickImage()">🖼</button><button class="ico" title="구분선" onclick="cmd('insertHorizontalRule')">―</button><button class="ico" title="링크" onclick="link()">🔗</button><button class="ico" id="recb" title="녹음 · 녹음 파일 넣기" onclick="recMenu(this)">🎙</button><div class="g"></div>
    <button class="ico" title="서식 지우기" onclick="cmd('removeFormat')">⌫</button>
    <span class="sp"></span>
    <span id="tbr"><span id="svst"></span><button class="ico" id="pinb" title="위에 고정" onclick="togglePin()">📌</button><button class="ico" title="노트북으로 옮기기" onclick="moveMenu(this)">📁</button><button class="ico" title="더 보기" onclick="noteMenu(this)">⋯</button></span>
@@ -990,7 +990,34 @@ document.addEventListener("selectionchange", updTbl);
 
 // 그림
 function pickImage() { $("file").value = ""; $("file").click(); }
-$("file").onchange = () => addImages([...$("file").files]);
+$("file").onchange = () => addFiles([...$("file").files]);
+// 그림은 본문에, 소리 파일(mp3 · m4a · wav · ogg · webm · aac · flac · amr)은 녹음 카드로
+const AUD_EXT = /\.(mp3|m4a|mp4a|aac|wav|ogg|oga|opus|webm|flac|amr|3gp|3ga|wma)$/i;
+const isAudio = f => (f.type || "").startsWith("audio/") || AUD_EXT.test(f.name || "");
+function audioMime(f) {
+  if (f.type && f.type.startsWith("audio/")) return f.type;
+  const e = (f.name.split(".").pop() || "").toLowerCase();
+  return { mp3: "audio/mpeg", m4a: "audio/mp4", mp4a: "audio/mp4", aac: "audio/aac", wav: "audio/wav", ogg: "audio/ogg", oga: "audio/ogg", opus: "audio/ogg", webm: "audio/webm", flac: "audio/flac", amr: "audio/amr", "3gp": "audio/3gpp", "3ga": "audio/3gpp", wma: "audio/x-ms-wma" }[e] || "audio/mpeg";
+}
+function audioSecs(blob) {
+  return new Promise(ok => { const a = new Audio(); const u = URL.createObjectURL(blob); const done = v => { URL.revokeObjectURL(u); ok(v); };
+    a.preload = "metadata"; a.onloadedmetadata = () => done(isFinite(a.duration) ? Math.round(a.duration) : 0); a.onerror = () => done(0); setTimeout(() => done(0), 8000); a.src = u; });
+}
+async function addFiles(files) {
+  const auds = files.filter(isAudio), imgs = files.filter(f => !isAudio(f));
+  if (imgs.length) await addImages(imgs);
+  if (auds.length && !S.sel) await newNote();
+  for (const f of auds) {
+    const blob = new Blob([f], { type: audioMime(f) });
+    await addAudio(blob, f.name, await audioSecs(blob), S.sel);
+  }
+}
+function pickAudio() { const f = document.createElement("input"); f.type = "file"; f.multiple = true; f.accept = "audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.flac,.amr,.3gp,.wma"; f.onchange = () => addFiles([...f.files]); f.click(); }
+function recMenu(btn) {
+  if (S.rec) { toggleRec(); return; }
+  const r = btn.getBoundingClientRect();
+  menu(r.left, r.bottom + 4, [["🔴 녹음 시작", () => toggleRec()], ["📂 녹음 파일 넣기 (mp3 · m4a · wav …)", pickAudio]]);
+}
 async function shrink(file) {
   // 큰 사진은 긴 변 2560 · JPEG 0.85 로
   const bmp = await createImageBitmap(file).catch(() => null); if (!bmp) return null;
@@ -1020,7 +1047,10 @@ $("body").addEventListener("paste", e => {
   const html = e.clipboardData.getData("text/html");
   if (html) { e.preventDefault(); const d = document.createElement("div"); d.innerHTML = html.replace(/<!--[\s\S]*?-->/g, ""); document.execCommand("insertHTML", false, clean(d).innerHTML); touched(); }
 });
-$("body").addEventListener("drop", e => { const f = [...e.dataTransfer.files]; if (f.length) { e.preventDefault(); addImages(f); } });
+$("body").addEventListener("drop", e => { const f = [...e.dataTransfer.files]; if (f.length) { e.preventDefault(); addFiles(f); } });
+// 본문 밖(녹음 카드 · 제목 근처)에 놓아도
+$("scroll").addEventListener("dragover", e => { if ([...e.dataTransfer.types].includes("Files")) e.preventDefault(); });
+$("scroll").addEventListener("drop", e => { if ($("body").contains(e.target)) return; const f = [...e.dataTransfer.files]; if (f.length) { e.preventDefault(); addFiles(f); } });
 $("body").addEventListener("input", touched);
 $("body").addEventListener("click", e => {
   const li = e.target.closest("ul.check > li");
@@ -1059,7 +1089,7 @@ async function addAudio(blob, name, secs, nid) {
   const n = S.notes.get(nid || S.sel); if (!n) return;
   const id = rid(); await blobSet(id, blob);
   n.atts = n.atts || []; n.atts.push({ id, kind: "audio", name, secs: secs || 0, size: blob.size, mime: blob.type, transcript: "" });
-  await touchMeta(n); if (S.sel === n.id) renderAtts(); toast("녹음을 붙였습니다");
+  await touchMeta(n); if (S.sel === n.id) renderAtts(); toast("녹음을 붙였습니다" + (HOST ? " — 카드의 「받아쓰기」 로 글로 바꿀 수 있습니다" : ""));
 }
 // 녹음 → 16kHz 모노 WAV (whisper 가 읽는 꼴)
 async function toWav16k(blob) {
@@ -1232,6 +1262,7 @@ const SLASH = [
   ["구분선", "―", "가로줄", () => cmd("insertHorizontalRule")],
   ["그림", "🖼", "그림 파일 넣기", () => pickImage()],
   ...(HOST || navigator.mediaDevices ? [["녹음", "🎙", "회의 녹음 시작", () => toggleRec()]] : []),
+  ["녹음 파일", "📂", "mp3 · m4a · wav 넣기", () => pickAudio()],
 ];
 let SL = null;
 function slashBlock() {
