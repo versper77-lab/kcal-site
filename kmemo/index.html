@@ -37,7 +37,12 @@ input:focus,select:focus{border-color:var(--acc)}
 .grp .ga{border:none;width:22px;height:22px;padding:0;border-radius:6px;color:#9fb4d8;font-size:14px;background:rgba(96,165,250,.1)}
 .grp .ga:hover{background:rgba(96,165,250,.22);color:#fff}
 .grp.books{border-color:rgba(245,158,11,.14);background:linear-gradient(180deg,rgba(245,158,11,.05),rgba(245,158,11,.015))}
-.grp.books .gh{color:#d6b07a}.grp.books .ga{background:rgba(245,158,11,.12);color:#f3c27a}.grp.books .ga:hover{background:rgba(245,158,11,.25);color:#fff}
+.grp.books .gh{color:#d6b07a;gap:6px;padding:4px 4px 8px}
+.gnew{flex:1;display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid rgba(96,165,250,.35);border-radius:8px;background:linear-gradient(180deg,#2f6bf0,#1f4fc4);color:#fff;font-weight:600;font-size:13.5px;letter-spacing:0;box-shadow:0 3px 10px rgba(37,99,235,.25),inset 0 1px 0 rgba(255,255,255,.15);cursor:pointer}
+.gnew:hover{filter:brightness(1.1)}
+.gnew .pl{width:18px;height:18px;border-radius:5px;background:rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+.gnew kbd{margin-left:auto;font-family:inherit;font-size:10.5px;font-weight:400;opacity:.65;background:rgba(0,0,0,.18);padding:2px 5px;border-radius:5px}
+.grp.books .ga{width:32px;height:32px;font-size:14px}.grp.books .ga{background:rgba(245,158,11,.12);color:#f3c27a}.grp.books .ga:hover{background:rgba(245,158,11,.25);color:#fff}
 .grp.books .ti.sel{background:rgba(245,158,11,.14)}
 .grp.trash{padding:3px 5px}
 .gempty{padding:8px 10px;color:var(--muted);font-size:12px}
@@ -193,7 +198,6 @@ input:focus,select:focus{border-color:var(--acc)}
 <div id="app">
  <aside id="side">
   <div class="top"><button class="ico back" onclick="view('list')">✕</button><b>KMEMO</b><button class="ico" title="설정" onclick="openSettings()">⚙</button><button class="ico wideonly" title="사이드바 접기" onclick="toggleSide()">«</button></div>
-  <button id="newnote" onclick="newNote()"><span class="pl">＋</span>신규 노트<kbd>Ctrl+N</kbd></button>
   <div id="tree"></div>
   <div id="quota" title=""><div class="ql"><span>구글 드라이브</span><b></b></div><div class="qb"><i></i></div><div class="qs"></div></div>
   <div id="status"><div class="badge" onclick="statusDetail()" title="자세히"><div class="dot"></div><span>로컬 저장됨</span></div><button class="ico rf" title="지금 동기화" onclick="userSync()">⟳</button></div>
@@ -509,10 +513,14 @@ function renderTree() {
     t.appendChild(d); return d;
   };
   const vis = live.filter(n => !(n.lock && !n._plain));
-  item("모든 노트", vis.length, S.view.k === "all", () => setView({ k: "all" }), 0, "≡");
+  item("전체 노트", vis.length, S.view.k === "all", () => setView({ k: "all" }), 0, "≡");
   item("고정한 노트", vis.filter(n => n.pinned).length, S.view.k === "pinned", () => setView({ k: "pinned" }), 0, "📌");
   item("최근 7일", vis.filter(n => n.updated > Date.now() - 7 * 864e5).length, S.view.k === "recent", () => setView({ k: "recent" }), 0, "🕘");
-  t = grp("books", "노트북", ["새 노트북", () => newBook(null)]);
+  // 노트북 칸 머리 = 「＋ 신규 노트」(지금 고른 노트북에), 오른쪽 작은 단추 = 새 노트북
+  t = grp("books", "", null);
+  { const h = document.createElement("div"); h.className = "gh";
+    h.innerHTML = `<button class="gnew" title="새 노트 (Ctrl+N) — 노트북을 골라 두면 그 노트북에"><span class="pl">＋</span>신규 노트<kbd>Ctrl+N</kbd></button><button class="ga" title="새 노트북">📁</button>`;
+    h.querySelector(".gnew").onclick = () => newNote(); h.querySelector(".ga").onclick = () => newBook(null); t.appendChild(h); }
   if (!S.books.length) { const e = document.createElement("div"); e.className = "gempty"; e.textContent = "＋ 로 노트북을 만드세요"; t.appendChild(e); }
   const walk = (parent, depth) => {
     const kids = S.books.filter(b => (b.parent || null) === parent).sort((a, b) => a.name.localeCompare(b.name, "ko"));
@@ -579,7 +587,7 @@ function filtered() {
 function fmtDate(ms) { const d = new Date(ms), now = new Date(); const p = x => String(x).padStart(2, "0"); return d.toDateString() === now.toDateString() ? `${p(d.getHours())}:${p(d.getMinutes())}` : `${d.getFullYear() % 100}.${d.getMonth() + 1}.${d.getDate()}`; }
 function renderList() {
   const v = S.view, a = filtered();
-  $("lh").textContent = (v.k === "all" ? "모든 노트" : v.k === "pinned" ? "고정한 노트" : v.k === "recent" ? "최근 7일" : v.k === "trash" ? "휴지통" : bookPath(v.id)) + ` · ${a.length}`;
+  $("lh").textContent = (v.k === "all" ? "전체 노트" : v.k === "pinned" ? "고정한 노트" : v.k === "recent" ? "최근 7일" : v.k === "trash" ? "휴지통" : bookPath(v.id)) + ` · ${a.length}`;
   $("sortb").textContent = SORTS[S.sort] + " ⇅";
   const box = $("notes"); box.innerHTML = "";
   const lb = v.k === "book" ? bookLockOf(v.id) : null;
