@@ -706,8 +706,10 @@ function noteMenu(el, ev) {
     null,
     ["휴지통으로", async () => { n.deleted = true; await touchMeta(n); S.sel = null; openNote(null); }],
   ] : [
-    ...(n.lock ? [["🔒 지금 잠그기", () => lockAll()], ["비밀번호 바꾸기…", () => setLock(n, true)], ["비밀번호 풀기…", () => removeLock(n)], null]
-               : [["🔒 비밀번호 걸기…", () => setLock(n, false)], null]),
+    ...(() => { const lb = n.book && bookLockOf(n.book), byBook = lb && n.lock && n.lock.salt === lb.lock.salt;
+      return byBook ? [["🔒 지금 잠그기", () => lockAll()], ["🔐 이 노트에 비밀번호 따로 걸기…", () => setLock(n, false)], null]
+        : n.lock ? [["🔒 지금 잠그기", () => lockAll()], ["비밀번호 바꾸기…", () => setLock(n, true)], [lb ? "따로 건 비밀번호 풀기 (노트북 비밀번호만)…" : "비밀번호 풀기…", () => removeLock(n)], null]
+        : [["🔒 비밀번호 걸기…", () => setLock(n, false)], null]; })(),
     [n.pinned ? "고정 풀기" : "위에 고정", togglePin],
     ["🕘 이전 버전…", showVersions],
     ["노트 복제", async () => { await saveNow(); const c = { ...n, id: rid(), title: (n.title || "") + " (사본)", created: Date.now(), updated: Date.now(), su: 0 }; if (n.lock) S.keys.set(c.id, S.keys.get(n.id)); S.notes.set(c.id, c); await putNote(c); renderAll(); openNote(c.id); syncSoon(3000); }],
@@ -753,7 +755,11 @@ const bookOpen = b => !!(b && b.lock && S.saltKeys.has(b.lock.salt));
 async function lockIntoBook(n, lb) {
   // 노트를 노트북 비밀번호로 잠금 (열 수 있는 노트만)
   if (n.lock && n.lock.salt === lb.lock.salt) return true;
-  if (n.lock && !n._plain) return false;
+  if (n.lock) {
+    // 따로 비밀번호가 걸린 노트는 그 비밀번호 그대로 (제목만 같이 숨김)
+    if (n._plain && !n.lock.tt) { n.lock.tt = true; n.updated = Date.now(); await putNote(n); }
+    return true;
+  }
   n.lock = { salt: lb.lock.salt, iter: lb.lock.iter || ITER, tt: true }; n._plain = true;
   S.keys.set(n.id, { key: S.saltKeys.get(lb.lock.salt), salt: lb.lock.salt });
   n.updated = Date.now(); await putNote(n); return true;
@@ -793,15 +799,18 @@ const askPin = (title, body) => dialog(`<h3>${title}</h3><p>${body}</p><label>�
   d => { const a = d.querySelector(".a").value; if (!/^\d{4}$/.test(a)) return { err: "숫자 4자리로 하세요" }; if (d.querySelector(".b").value !== a) return { err: "두 번 넣은 것이 다릅니다" }; return a; });
 async function setLock(n, change) {
   await saveNow();
-  const pin = await askPin(change ? "비밀번호 바꾸기" : "노트 비밀번호 걸기", "이 노트를 열 때마다 비밀번호를 묻습니다. 모든 기기에 같이 적용됩니다. <b>잊으면 이 노트는 아무도 열 수 없으니</b> 꼭 기억해 두세요.");
+  const pin = await askPin(change ? "비밀번호 바꾸기" : "노트 비밀번호 걸기", (n.book && bookLockOf(n.book) ? "노트북 비밀번호와 따로, 이 노트를 열 때 이 비밀번호를 한 번 더 묻습니다. " : "이 노트를 열 때마다 비밀번호를 묻습니다. ") + "모든 기기에 같이 적용됩니다. <b>잊으면 이 노트는 아무도 열 수 없으니</b> 꼭 기억해 두세요.");
   if (!pin) return;
   const salt = crypto.getRandomValues(new Uint8Array(16)), key = await derive(pin, salt, ITER);
-  n.lock = { salt: b64(salt), iter: ITER }; n._plain = true; S.keys.set(n.id, { key, salt: n.lock.salt });
+  n.lock = { salt: b64(salt), iter: ITER, ...(n.book && bookLockOf(n.book) ? { tt: true } : {}) }; n._plain = true; S.keys.set(n.id, { key, salt: n.lock.salt });
   await touchMeta(n); lockIdle(); toast(change ? "비밀번호를 바꿨습니다" : "🔒 비밀번호를 걸었습니다 — 5분 동안 안 쓰면 다시 잠깁니다");
 }
 async function removeLock(n) {
   if (!(await askYes("비밀번호 풀기", "이 노트의 비밀번호를 없앱니다. 모든 기기에서 그냥 열립니다."))) return;
-  await saveNow(); delete n.lock; delete n.enc; delete n._plain; S.keys.delete(n.id); await touchMeta(n); toast("비밀번호를 풀었습니다");
+  await saveNow(); delete n.lock; delete n.enc; delete n._plain; S.keys.delete(n.id);
+  const lb = n.book && bookLockOf(n.book);
+  if (lb && bookOpen(lb)) { await lockIntoBook(n, lb); await touchMeta(n); toast("따로 건 비밀번호를 풀었습니다 — 노트북 비밀번호로만 잠깁니다"); return; }
+  await touchMeta(n); toast("비밀번호를 풀었습니다");
 }
 async function lockAll() {
   await saveNow(); clearTimeout(S.lockT);
