@@ -25,9 +25,22 @@ input:focus,select:focus{border-color:var(--acc)}
 #app{display:grid;grid-template-columns:236px 300px minmax(0,1fr);height:100%}
 /* 1단: 사이드바 */
 #side{min-width:0;background:var(--side);display:flex;flex-direction:column;min-height:0}
-#side .top{padding:14px 12px 8px 16px;display:flex;gap:4px;align-items:center}
+#side .top{padding:14px 12px 10px 16px;display:flex;gap:4px;align-items:center}
 #side .top b{font-size:15px;flex:1;letter-spacing:.3px}
-#tree{flex:1;overflow:auto;padding:4px 8px}
+#tree{flex:1;overflow:auto;padding:4px 10px 8px}
+#newnote{margin:2px 10px 10px;display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid rgba(96,165,250,.35);border-radius:10px;background:linear-gradient(180deg,#2f6bf0,#1f4fc4);color:#fff;font-weight:600;font-size:14px;box-shadow:0 4px 14px rgba(37,99,235,.28),inset 0 1px 0 rgba(255,255,255,.15);cursor:pointer;transition:filter .12s,transform .06s}
+#newnote:hover{filter:brightness(1.1)}#newnote:active{transform:translateY(1px)}
+#newnote .pl{width:20px;height:20px;border-radius:6px;background:rgba(255,255,255,.18);display:inline-flex;align-items:center;justify-content:center;font-size:14px}
+#newnote kbd{margin-left:auto;font-family:inherit;font-size:11px;line-height:1;font-weight:400;opacity:.65;background:rgba(0,0,0,.18);padding:3px 6px;border-radius:5px}
+.grp{background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.015));border:1px solid rgba(255,255,255,.06);border-radius:11px;padding:5px;margin-bottom:10px;box-shadow:0 1px 0 rgba(0,0,0,.25)}
+.grp .gh{display:flex;align-items:center;justify-content:space-between;padding:6px 8px 6px 10px;margin-bottom:2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:11px;letter-spacing:.6px;color:#8b93a3;font-weight:600}
+.grp .ga{border:none;width:22px;height:22px;padding:0;border-radius:6px;color:#9fb4d8;font-size:14px;background:rgba(96,165,250,.1)}
+.grp .ga:hover{background:rgba(96,165,250,.22);color:#fff}
+.grp.books{border-color:rgba(245,158,11,.14);background:linear-gradient(180deg,rgba(245,158,11,.05),rgba(245,158,11,.015))}
+.grp.books .gh{color:#d6b07a}.grp.books .ga{background:rgba(245,158,11,.12);color:#f3c27a}.grp.books .ga:hover{background:rgba(245,158,11,.25);color:#fff}
+.grp.books .ti.sel{background:rgba(245,158,11,.14)}
+.grp.trash{padding:3px 5px}
+.gempty{padding:8px 10px;color:var(--muted);font-size:12px}
 .ti{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;cursor:pointer;user-select:none;white-space:nowrap;color:var(--sub);margin:1px 0}
 .ti:hover{background:var(--hover);color:var(--fg)}
 .ti.sel{background:var(--accbg);color:var(--fg)}
@@ -180,6 +193,7 @@ input:focus,select:focus{border-color:var(--acc)}
 <div id="app">
  <aside id="side">
   <div class="top"><button class="ico back" onclick="view('list')">✕</button><b>KMEMO</b><button class="ico" title="설정" onclick="openSettings()">⚙</button><button class="ico wideonly" title="사이드바 접기" onclick="toggleSide()">«</button></div>
+  <button id="newnote" onclick="newNote()"><span class="pl">＋</span>신규 노트<kbd>Ctrl+N</kbd></button>
   <div id="tree"></div>
   <div id="quota" title=""><div class="ql"><span>구글 드라이브</span><b></b></div><div class="qb"><i></i></div><div class="qs"></div></div>
   <div id="status"><div class="badge" onclick="statusDetail()" title="자세히"><div class="dot"></div><span>로컬 저장됨</span></div><button class="ico rf" title="지금 동기화" onclick="userSync()">⟳</button></div>
@@ -477,7 +491,9 @@ function descendants(id) { const out = [id]; for (const b of S.books) if (b.pare
 function saveBooks() { S.booksU = Date.now(); kvSet("books", { books: S.books, u: S.booksU }); syncSoon(3000); }
 function liveNotes() { return [...S.notes.values()].filter(n => !n.deleted); }
 function renderTree() {
-  const t = $("tree"); t.innerHTML = "";
+  const root = $("tree"); root.innerHTML = "";
+  const grp = (cls, title, add) => { const g = document.createElement("div"); g.className = "grp " + cls; if (title) { const h = document.createElement("div"); h.className = "gh"; h.innerHTML = `<span>${title}</span>`; if (add) { const b = document.createElement("button"); b.className = "ga"; b.title = add[0]; b.textContent = "＋"; b.onclick = add[1]; h.appendChild(b); } g.appendChild(h); } root.appendChild(g); return g; };
+  let t = grp("views", "");
   const live = liveNotes();
   const item = (label, ct, sel, onclick, depth = 0, tw = "", book = null) => {
     const d = document.createElement("div"); d.className = "ti" + (sel ? " sel" : ""); d.style.paddingLeft = (8 + depth * 14) + "px";
@@ -496,9 +512,8 @@ function renderTree() {
   item("모든 노트", vis.length, S.view.k === "all", () => setView({ k: "all" }), 0, "≡");
   item("고정한 노트", vis.filter(n => n.pinned).length, S.view.k === "pinned", () => setView({ k: "pinned" }), 0, "📌");
   item("최근 7일", vis.filter(n => n.updated > Date.now() - 7 * 864e5).length, S.view.k === "recent", () => setView({ k: "recent" }), 0, "🕘");
-  const s = document.createElement("div"); s.className = "sep"; t.appendChild(s);
-  const h = document.createElement("div"); h.className = "ti"; h.innerHTML = `<span class="tw"></span><span class="nm" style="color:var(--sub);font-size:12px">노트북</span><span class="ct" style="font-size:16px" title="새 노트북">＋</span>`;
-  h.onclick = () => newBook(null); t.appendChild(h);
+  t = grp("books", "노트북", ["새 노트북", () => newBook(null)]);
+  if (!S.books.length) { const e = document.createElement("div"); e.className = "gempty"; e.textContent = "＋ 로 노트북을 만드세요"; t.appendChild(e); }
   const walk = (parent, depth) => {
     const kids = S.books.filter(b => (b.parent || null) === parent).sort((a, b) => a.name.localeCompare(b.name, "ko"));
     for (const b of kids) {
@@ -512,7 +527,7 @@ function renderTree() {
     }
   };
   walk(null, 0);
-  const s2 = document.createElement("div"); s2.className = "sep"; t.appendChild(s2);
+  t = grp("trash", "");
   item("휴지통", [...S.notes.values()].filter(n => n.deleted).length, S.view.k === "trash", () => setView({ k: "trash" }), 0, "🗑");
 }
 async function newBook(parent) {
