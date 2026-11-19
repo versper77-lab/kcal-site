@@ -45,6 +45,10 @@ input:focus,select:focus{border-color:var(--acc)}
 .grp.books .ga{width:32px;height:32px;font-size:14px}.grp.books .ga{background:rgba(245,158,11,.12);color:#f3c27a}.grp.books .ga:hover{background:rgba(245,158,11,.25);color:#fff}
 .grp.books .ti.sel{background:rgba(245,158,11,.14)}
 .grp.trash{padding:3px 5px}
+.ti .tw.kids{width:18px;height:18px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;font-size:9px;color:#f3c27a;background:rgba(245,158,11,.16);border:1px solid rgba(245,158,11,.3);cursor:pointer;transition:transform .15s,background .12s}
+.ti .tw.kids:hover{background:rgba(245,158,11,.3);color:#fff}
+.ti .tw.kids.open{transform:rotate(90deg)}
+.ti .subn{font-size:10.5px;color:#d6b07a;background:rgba(245,158,11,.1);border-radius:999px;padding:1px 7px;margin-right:4px;cursor:pointer;white-space:nowrap}
 .gempty{padding:8px 10px;color:var(--muted);font-size:12px}
 .ti{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:7px;cursor:pointer;user-select:none;white-space:nowrap;color:var(--sub);margin:1px 0}
 .ti:hover{background:var(--hover);color:var(--fg)}
@@ -530,8 +534,15 @@ function renderTree() {
       const ids = descendants(b.id);
       const ct = live.filter(n => ids.includes(n.book)).length;
       const open = S.open.has(b.id);
-      const d = item(b.name + (b.lock ? (bookOpen(b) ? " 🔓" : " 🔒") : ""), ct, S.view.k === "book" && S.view.id === b.id, () => setView({ k: "book", id: b.id }), depth, hasKids ? (open ? "▾" : "▸") : "", b);
+      const d = item(b.name + (b.lock ? (bookOpen(b) ? " 🔓" : " 🔒") : ""), ct, S.view.k === "book" && S.view.id === b.id, () => setView({ k: "book", id: b.id }), depth, hasKids ? "▶" : "", b);
       d.querySelector(".tw").onclick = e => { e.stopPropagation(); open ? S.open.delete(b.id) : S.open.add(b.id); LS.set("km_open", JSON.stringify([...S.open])); renderTree(); };
+      if (hasKids) {
+        // 하위 노트북 있음: 눈에 띄는 화살표 칩 + 「하위 n」
+        const tw = d.querySelector(".tw"); tw.classList.add("kids"); if (open) tw.classList.add("open"); tw.title = open ? "하위 노트북 접기" : "하위 노트북 펼치기";
+        const nk = S.books.filter(x => x.parent === b.id).length, sub = document.createElement("span");
+        sub.className = "subn"; sub.textContent = "하위 " + nk; sub.title = tw.title; sub.onclick = tw.onclick;
+        d.insertBefore(sub, d.querySelector(".ct"));
+      }
       if (hasKids && open) walk(b.id, depth + 1);
     }
   };
