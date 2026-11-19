@@ -42,7 +42,6 @@ input:focus,select:focus{border-color:var(--acc)}
 #status .dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex:none;box-shadow:0 0 0 3px rgba(255,255,255,.04)}
 #status .badge span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #status.err .badge{color:var(--bad)}
-#status.err .badge span{white-space:normal;line-height:1.35}
 #status button.ico{width:26px;height:26px}
 #status.busy .rf{animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -207,6 +206,7 @@ input:focus,select:focus{border-color:var(--acc)}
 // ───────── 설정 (폰 웹에서 쓸 구글 웹 클라이언트 ID)
 const WEB_CLIENT_ID = "118538880077-ujq2rtbbhevj23qr0sqv96gek20aoa46.apps.googleusercontent.com";
 const SCOPE = "https://www.googleapis.com/auth/drive.appdata";
+const NOSCOPE = "구글 드라이브 권한이 빠졌습니다 — 다시 로그인할 때 「Google Drive 에서 이 앱의 구성 데이터 보기 · 관리」 칸을 꼭 체크하세요";
 const API = "https://www.googleapis.com/drive/v3", UP = "https://www.googleapis.com/upload/drive/v3";
 const ITER = 200000, MAGIC = [75, 77, 49];
 const HOST = window.ipc && window.ipc.postMessage ? window.ipc : null; // PC 프로그램 안
@@ -285,7 +285,8 @@ async function token(interactive) {
   if (!window.google || !google.accounts) await loadGis();
   return new Promise((ok, no) => {
     gisClient = gisClient || google.accounts.oauth2.initTokenClient({ client_id: WEB_CLIENT_ID, scope: SCOPE, callback: () => {} });
-    gisClient.callback = r => { if (r.error) { no(new Error(r.error)); return; } S.token = r.access_token; S.tokenExp = Date.now() + (r.expires_in || 3600) * 1000 - 60000; LS.set("km_linked", "1"); LS.set("km_tok", S.token); LS.set("km_tokexp", String(S.tokenExp)); ok(S.token); };
+    gisClient.callback = r => { if (r.error) { no(new Error(r.error)); return; }
+      if (!google.accounts.oauth2.hasGrantedAllScopes(r, SCOPE)) { LS.set("km_linked", ""); no(new Error(NOSCOPE)); return; } S.token = r.access_token; S.tokenExp = Date.now() + (r.expires_in || 3600) * 1000 - 60000; LS.set("km_linked", "1"); LS.set("km_tok", S.token); LS.set("km_tokexp", String(S.tokenExp)); ok(S.token); };
     gisClient.error_callback = e => no(new Error(e.type || "로그인 창이 닫힘"));
     gisClient.requestAccessToken({ prompt: interactive && !LS.get("km_linked") ? "consent" : "" });
   });
@@ -305,7 +306,16 @@ async function gfetch(url, opt = {}, again) {
     if (!again && HOST) return gfetch(url, opt, true);
     throw new Error(WEB ? "구글 로그인이 만료됐습니다 — ⟳ 를 누르면 다시 연결합니다" : "구글 연결이 끊겼습니다 — ⚙ 설정에서 다시 연결하세요");
   }
-  if (!r.ok) { let m = r.status + ""; try { m = (await r.json()).error.message; } catch (e) {} throw new Error(m); }
+  if (!r.ok) {
+    let m = r.status + ""; try { m = (await r.json()).error.message; } catch (e) {}
+    if (r.status === 403 && /insufficient.*scope/i.test(m)) {
+      // 드라이브 권한 없이 로그인됨 → 로그인 지우고 다시 (이번엔 동의 화면이 다시 나옴)
+      S.token = null; S.tokenExp = 0; LS.set("km_tok", ""); LS.set("km_linked", "");
+      if (HOST) await hostCall("logout", {});
+      throw new Error(NOSCOPE);
+    }
+    throw new Error(m);
+  }
   return r;
 }
 async function dlist() {
@@ -331,14 +341,15 @@ const ddel = id => gfetch(`${API}/files/${id}`, { method: "DELETE" });
 function setStatus(kind, t) {
   S.stKind = kind; S.status = t; const st = $("status"); st.className = kind;
   st.querySelector(".dot").style.background = { ok: "var(--ok)", busy: "var(--acc)", err: "var(--bad)", pw: "var(--warn)", off: "var(--muted)" }[kind];
-  const short = kind === "err" ? "동기화 오류 — 클릭하여 상세 보기" : kind === "ok" ? "동기화됨" + (S.lastSync ? " · " + fmtDate(S.lastSync) : "") : kind === "pw" ? "동기화 암호 필요" : kind === "busy" ? t : "로컬 저장됨";
+  const short = kind === "err" ? "동기화 오류 (상세 보기)" : kind === "ok" ? "동기화됨" + (S.lastSync ? " · " + fmtDate(S.lastSync) : "") : kind === "pw" ? "동기화 암호 필요" : kind === "busy" ? t : "로컬 저장됨";
   st.querySelector(".badge span").textContent = short; st.querySelector(".badge").title = t;
 }
 function statusDetail() {
   const k = { ok: "동기화됨", busy: "동기화 중", err: "동기화 오류", pw: "동기화 암호 필요", off: "로컬 저장됨 (구글 드라이브 연결 안 됨)" }[S.stKind] || "로컬 저장됨";
   const msg = (S.status || "").replace(/</g, "&lt;");
   let help = "";
-  if (/invalid authentication|만료|끊겼|연결 안 됨|연결 실패/i.test(S.status || "")) help = "<p>구글 로그인이 만료되었거나 끊긴 상태입니다. 아래 「다시 시도」를 누르면 다시 연결합니다.</p>";
+  if (/권한이 빠졌|scope/i.test(S.status || "")) help = "<p>구글 로그인 때 나온 권한 화면에서 <b>「Google Drive 에서 이 앱의 구성 데이터 보기 · 관리」 칸이 체크되지 않아</b> 드라이브에 접근하지 못했습니다. 「다시 시도」 를 누르고 계정을 고른 뒤 <b>그 칸을 체크</b>하고 계속을 누르세요.</p>";
+  else if (/invalid authentication|만료|끊겼|연결 안 됨|연결 실패/i.test(S.status || "")) help = "<p>구글 로그인이 만료되었거나 끊긴 상태입니다. 아래 「다시 시도」를 누르면 다시 연결합니다.</p>";
   else if (S.stKind === "off") help = "<p>노트는 이 기기에 저장되어 있습니다. ⟳ 를 누르면 구글 드라이브에 연결해 다른 기기와 맞춥니다.</p>";
   dialog(`<h3>${k}</h3>${msg ? `<pre>${msg}</pre>` : ""}${help}<p>마지막 동기화: ${S.lastSync ? new Date(S.lastSync).toLocaleString("ko-KR") : "아직 없음"}</p>`, () => true)
     .then(r => { if (r && !DEMO) userSync(); });
@@ -374,7 +385,7 @@ async function syncNow(user) {
   await saveNow();
   S.syncing = true; setStatus("busy", "동기화 중…");
   try {
-    if (WEB) await token(!!user);
+    if (WEB || (HOST && user)) await token(!!user);
     const files = await dlist();
     if (!(await ensureKey(files))) return;
     let got = 0, sent = 0;
@@ -971,7 +982,9 @@ function hashtags(html) {
 }
 function updCount() {
   const n = S.notes.get(S.sel); if (!n || (n.lock && !n._plain)) { $("foot").textContent = ""; return; }
-  const t = $("body").innerText.replace(/\n$/, ""), words = (t.match(/\S+/g) || []).length, chars = t.replace(/\n/g, "").length, lines = t ? t.split("\n").length : 0;
+  // 실제로 쓴 글자만: 빈 문단 · 표 칸 사이 탭 · 줄바꿈은 안 셈 (글자 = 공백 뺀 글자, 줄 = 글자가 있는 줄)
+  const t = ($("body").innerText || "").replace(/\u200b|\u00a0/g, " ");
+  const words = (t.match(/\S+/g) || []).length, chars = t.replace(/\s/g, "").length, lines = t.split(/\n/).filter(l => l.trim()).length;
   $("foot").textContent = `단어 ${words.toLocaleString()} · 글자 ${chars.toLocaleString()} · 줄 ${lines.toLocaleString()}`;
 }
 let PHEL = null;
