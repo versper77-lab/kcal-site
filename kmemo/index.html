@@ -517,6 +517,10 @@ function bookPath(id) { const p = []; let b = S.books.find(x => x.id === id); wh
 function descendants(id) { const out = [id]; for (const b of S.books) if (b.parent === id) out.push(...descendants(b.id)); return out; }
 function saveBooks() { S.booksU = Date.now(); kvSet("books", { books: S.books, u: S.booksU }); syncSoon(3000); }
 function liveNotes() { return [...S.notes.values()].filter(n => !n.deleted); }
+// 같은 부모의 노트북들: 순서(ord) → 없으면 이름 순
+function sibs(parent) {
+  return S.books.filter(b => (b.parent || null) === (parent || null)).sort((a, b) => (a.ord ?? 1e9) - (b.ord ?? 1e9) || a.name.localeCompare(b.name, "ko"));
+}
 function renderTree() {
   const root = $("tree"); root.innerHTML = "";
   const grp = (cls, title, add) => { const g = document.createElement("div"); g.className = "grp " + cls; if (title) { const h = document.createElement("div"); h.className = "gh"; h.innerHTML = `<span>${title}</span>`; if (add) { const b = document.createElement("button"); b.className = "ga"; b.title = add[0]; b.textContent = "＋"; b.onclick = add[1]; h.appendChild(b); } g.appendChild(h); } root.appendChild(g); return g; };
@@ -537,7 +541,12 @@ function renderTree() {
         if (!bid || bid === book.id) return;
         const np = z === "in" ? book.id : (book.parent || null);
         if (np && (np === bid || descendants(bid).includes(np))) { toast("자기 안으로는 옮길 수 없습니다"); return; }
-        S.books.find(b => b.id === bid).parent = np; saveBooks(); renderAll(); };
+        const mb = S.books.find(b => b.id === bid); mb.parent = np;
+        // 옆으로 놓으면 그 자리 순서로 (노트북 순서는 ord 로 기억, 없으면 이름 순)
+        const list = sibs(np).filter(b => b.id !== bid);
+        if (z === "in") list.push(mb); else { const k = list.findIndex(b => b.id === book.id); list.splice(z === "top" ? k : k + 1, 0, mb); }
+        list.forEach((b, k) => b.ord = k);
+        saveBooks(); renderAll(); };
       d.draggable = true; d.ondragstart = e => { e.dataTransfer.setData("text/km-book", book.id); S.dragBook = book.id; }; d.ondragend = () => { S.dragBook = null; };
     }
     t.appendChild(d); return d;
@@ -557,7 +566,7 @@ function renderTree() {
     t.ondrop = e => { t.classList.remove("droproot"); if (!S.dragBook || !(e.target === t || h.contains(e.target))) return; e.preventDefault(); const b = S.books.find(x => x.id === S.dragBook); if (b && b.parent) { b.parent = null; saveBooks(); renderAll(); toast("맨 위로 꺼냈습니다"); } }; }
   if (!S.books.length) { const e = document.createElement("div"); e.className = "gempty"; e.textContent = "＋ 로 노트북을 만드세요"; t.appendChild(e); }
   const walk = (parent, depth) => {
-    const kids = S.books.filter(b => (b.parent || null) === parent).sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    const kids = sibs(parent);
     for (const b of kids) {
       const hasKids = S.books.some(x => x.parent === b.id);
       const ct = live.filter(n => n.book === b.id).length;
