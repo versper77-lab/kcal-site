@@ -492,9 +492,10 @@ function renderTree() {
     }
     t.appendChild(d); return d;
   };
-  item("모든 노트", live.length, S.view.k === "all", () => setView({ k: "all" }), 0, "≡");
-  item("고정한 노트", live.filter(n => n.pinned).length, S.view.k === "pinned", () => setView({ k: "pinned" }), 0, "📌");
-  item("최근 7일", live.filter(n => n.updated > Date.now() - 7 * 864e5).length, S.view.k === "recent", () => setView({ k: "recent" }), 0, "🕘");
+  const vis = live.filter(n => !(n.lock && !n._plain));
+  item("모든 노트", vis.length, S.view.k === "all", () => setView({ k: "all" }), 0, "≡");
+  item("고정한 노트", vis.filter(n => n.pinned).length, S.view.k === "pinned", () => setView({ k: "pinned" }), 0, "📌");
+  item("최근 7일", vis.filter(n => n.updated > Date.now() - 7 * 864e5).length, S.view.k === "recent", () => setView({ k: "recent" }), 0, "🕘");
   const s = document.createElement("div"); s.className = "sep"; t.appendChild(s);
   const h = document.createElement("div"); h.className = "ti"; h.innerHTML = `<span class="tw"></span><span class="nm" style="color:var(--sub);font-size:12px">노트북</span><span class="ct" style="font-size:16px" title="새 노트북">＋</span>`;
   h.onclick = () => newBook(null); t.appendChild(h);
@@ -548,6 +549,8 @@ function textOf(html) { const d = document.createElement("div"); d.innerHTML = (
 function shownTitle(n) { if (n.lock && n.lock.tt && !n._plain) return "🔒 잠긴 노트"; return (n.title || "").trim() || textOf(n.html).slice(0, 50) || (n.lock ? "🔒 잠긴 노트" : "(제목 없음)"); }
 function filtered() {
   const v = S.view; let a = [...S.notes.values()].filter(n => v.k === "trash" ? n.deleted : !n.deleted);
+  // 모든 노트 · 고정 · 최근 · 휴지통: 닫힌 잠긴 노트는 숨김 (노트북에 들어가야 보임)
+  if (v.k !== "book") a = a.filter(n => !(n.lock && !n._plain));
   if (v.k === "pinned") a = a.filter(n => n.pinned);
   if (v.k === "recent") a = a.filter(n => n.updated > Date.now() - 7 * 864e5);
   if (v.k === "book") { const ids = descendants(v.id); a = a.filter(n => ids.includes(n.book)); }
@@ -857,7 +860,9 @@ async function lockAll() {
   await saveNow(); clearTimeout(S.lockT);
   for (const n of S.notes.values()) if (n.lock && n._plain) { await putNote(n); n.html = ""; if (n.lock.tt) n.title = ""; for (const a of n.atts || []) delete a.transcript; delete n._plain; }
   for (const n of S.notes.values()) if (n.lock && n.lock.tt && !n._plain) n.title = "";
-  S.keys.clear(); S.saltKeys.clear(); if (S.sel) openNote(S.sel, false, true); renderAll();
+  S.keys.clear(); S.saltKeys.clear();
+  const sn = S.sel && S.notes.get(S.sel); if (sn && sn.lock && S.view.k !== "book") { S.sel = null; $("body").innerHTML = ""; }
+  if (S.sel) openNote(S.sel, false, true); renderAll();
 }
 function lockIdle() { clearTimeout(S.lockT); S.lockT = setTimeout(lockAll, 5 * 60000); }
 
