@@ -58,6 +58,14 @@ input:focus,select:focus{border-color:var(--acc)}
 #list .top .pri{width:34px;height:34px;padding:0;border-radius:8px;font-size:18px;line-height:1}
 #listhead{padding:2px 16px 8px;color:var(--muted);font-size:12px;display:flex;justify-content:space-between}
 #notes{flex:1;overflow:auto;padding:0 8px 12px}
+#app{transition:grid-template-columns .18s ease}
+#app.hs #side,#app.hl #list{overflow:hidden;visibility:hidden}
+.showside{display:none !important}#app.hs .showside{display:inline-flex !important}
+.lhb{cursor:pointer;color:var(--muted)}.lhb:hover{color:var(--fg)}.lhb.on{color:var(--acc2)}
+#notes.compact .nt{padding:7px 12px 7px 14px;margin-bottom:1px}#notes.compact .nt .p,#notes.compact .nt .cs{display:none}
+#notes.compact .nt.sel:before{top:6px;bottom:6px}
+.nt.drag{opacity:.4}
+.nt.dropb{box-shadow:inset 0 2px 0 var(--acc)}.nt.dropa{box-shadow:inset 0 -2px 0 var(--acc)}
 .nt{position:relative;padding:10px 12px 10px 14px;border-radius:9px;cursor:pointer;margin-bottom:3px;transition:background .12s}
 .nt:hover{background:var(--hover)}
 .nt.sel{background:var(--accbg)}
@@ -161,6 +169,7 @@ input:focus,select:focus{border-color:var(--acc)}
  body.v-side #side{display:flex}body.v-side #list{display:none}
  body.v-ed #ed{display:flex}body.v-ed #list{display:none}
  .back{display:inline-flex !important}
+ .wideonly,.showside{display:none !important}
  #doc{padding:18px 16px 100px}
  #title{font-size:22px}
  #foot{display:none}
@@ -170,19 +179,19 @@ input:focus,select:focus{border-color:var(--acc)}
 <body>
 <div id="app">
  <aside id="side">
-  <div class="top"><button class="ico back" onclick="view('list')">✕</button><b>KMEMO</b><button class="ico" title="설정" onclick="openSettings()">⚙</button></div>
+  <div class="top"><button class="ico back" onclick="view('list')">✕</button><b>KMEMO</b><button class="ico" title="설정" onclick="openSettings()">⚙</button><button class="ico wideonly" title="사이드바 접기" onclick="toggleSide()">«</button></div>
   <div id="tree"></div>
   <div id="quota" title=""><div class="ql"><span>구글 드라이브</span><b></b></div><div class="qb"><i></i></div><div class="qs"></div></div>
   <div id="status"><div class="badge" onclick="statusDetail()" title="자세히"><div class="dot"></div><span>로컬 저장됨</span></div><button class="ico rf" title="지금 동기화" onclick="userSync()">⟳</button></div>
  </aside>
  <section id="list">
-  <div class="top"><button class="ico back" onclick="view('side')">☰</button><input id="q" placeholder="찾기" oninput="setQ(this.value)"><button class="pri" onclick="newNote()">＋</button></div>
-  <div id="listhead"><span id="lh"></span><span id="sortb" style="cursor:pointer" onclick="cycleSort()"></span></div>
+  <div class="top"><button class="ico back" onclick="view('side')">☰</button><button class="ico showside" title="사이드바 펴기" onclick="toggleSide()">»</button><input id="q" placeholder="찾기" oninput="setQ(this.value)"><button class="pri" onclick="newNote()">＋</button></div>
+  <div id="listhead"><span id="lh"></span><span style="display:flex;gap:10px;align-items:center"><span id="cmpb" class="lhb" title="제목만 간단히 보기" onclick="toggleCompact()">☰ 간단히</span><span id="sortb" class="lhb" onclick="cycleSort()"></span></span></div>
   <div id="notes"></div>
  </section>
  <main id="ed">
   <div id="tb">
-   <button class="ico back" onclick="view('list')">‹</button>
+   <button class="ico back" onclick="view('list')">‹</button><button class="ico wideonly" id="fold" title="노트 목록 접기 · 펴기 (Ctrl+\)" onclick="toggleList()">◧</button><div class="g wideonly"></div>
    <button class="ico" title="실행 취소" onclick="cmd('undo')">↶</button><button class="ico" title="다시 실행" onclick="cmd('redo')">↷</button><div class="g"></div>
    <select id="blk" onchange="block(this.value)"><option value="p">본문</option><option value="h1">제목 1</option><option value="h2">제목 2</option><option value="h3">제목 3</option><option value="blockquote">인용</option><option value="pre">코드</option></select>
    <button class="ico" title="굵게 (Ctrl+B)" onclick="cmd('bold')"><b>B</b></button><button class="ico" title="기울임 (Ctrl+I)" onclick="cmd('italic')"><i>I</i></button><button class="ico" title="밑줄 (Ctrl+U)" onclick="cmd('underline')"><u>U</u></button><button class="ico" title="취소선" onclick="cmd('strikeThrough')"><s>S</s></button>
@@ -222,7 +231,7 @@ const WEB = !HOST && !DEMO;
 const $ = id => document.getElementById(id);
 const LS = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 const enc = new TextEncoder(), dec = new TextDecoder();
-const S = { notes: new Map(), keys: new Map(), saltKeys: new Map(), lockT: 0, vlast: new Map(), books: [], booksU: 0, cur: null, sel: null, view: { k: "all" }, q: "", sort: 0, key: null, token: null, tokenExp: 0,
+const S = { order: {}, orderU: 0, hideSide: false, hideList: false, compact: false, dragId: null, notes: new Map(), keys: new Map(), saltKeys: new Map(), lockT: 0, vlast: new Map(), books: [], booksU: 0, cur: null, sel: null, view: { k: "all" }, q: "", sort: 0, key: null, token: null, tokenExp: 0,
   open: new Set(JSON.parse(LS.get("km_open") || "[]")), urls: new Map(), dirty: false, saveT: 0, syncT: 0, syncing: false, status: "", stKind: "off", rec: null };
 
 // ───────── IndexedDB
@@ -413,6 +422,10 @@ async function syncNow(user) {
     const bf = files.get("s_books");
     if (bf && bf.u > S.booksU) { const j = JSON.parse(dec.decode(await unseal(S.key, await ddown(bf.id)))); S.books = j.books || []; S.booksU = bf.u; await kvSet("books", { books: S.books, u: S.booksU }); got++; }
     else if (!bf || S.booksU > bf.u) { await dup(bf && bf.id, "s_books", S.booksU, await seal(S.key, enc.encode(JSON.stringify({ books: S.books })))); sent++; }
+    // 직접 순서
+    const of = files.get("s_order");
+    if (of && of.u > S.orderU) { const j = JSON.parse(dec.decode(await unseal(S.key, await ddown(of.id)))); S.order = j.o || {}; S.orderU = of.u; await kvSet("order", { o: S.order, u: S.orderU }); got++; }
+    else if (S.orderU && (!of || S.orderU > of.u)) { await dup(of && of.id, "s_order", S.orderU, await seal(S.key, enc.encode(JSON.stringify({ o: S.order })))); sent++; }
     // 노트: 받기
     for (const [name, f] of files) {
       if (!name.startsWith("n_")) continue;
@@ -526,8 +539,9 @@ function bookMenu(e, b) {
 }
 
 // ───────── 노트 목록
-const SORTS = ["고친 순", "만든 순", "제목 순"];
-function cycleSort() { S.sort = (S.sort + 1) % 3; renderList(); }
+const SORTS = ["고친 순", "만든 순", "제목 순", "직접 순서"];
+function cycleSort() { S.sort = (S.sort + 1) % 4; LS.set("km_sort", String(S.sort)); renderList(); }
+function saveOrder() { S.orderU = Date.now(); kvSet("order", { o: S.order, u: S.orderU }); syncSoon(3000); }
 function setQ(v) { S.q = v; renderList(); }
 function setView(v) { S.view = v; renderAll(); if (innerWidth <= 820) view("list"); }
 function textOf(html) { const d = document.createElement("div"); d.innerHTML = (html || "").replace(/<\/(p|li|div|h\d|tr|td|th|blockquote|pre)>|<br\s*\/?>/gi, "$& "); return d.textContent.replace(/\s+/g, " ").trim(); }
@@ -539,7 +553,8 @@ function filtered() {
   if (v.k === "book") { const ids = descendants(v.id); a = a.filter(n => ids.includes(n.book)); }
   const q = S.q.toLowerCase().split(/\s+/).filter(Boolean);
   if (q.length) a = a.filter(n => { const h = ((n.title || "") + " " + textOf(n.html) + " " + (n.atts || []).map(x => (x.name || "") + " " + (x.transcript || "")).join(" ")).toLowerCase(); return q.every(w => h.includes(w)); });
-  const key = [n => -n.updated, n => -n.created, n => shownTitle(n)][S.sort];
+  const ord = n => n.id in S.order ? S.order[n.id] : 1e12 - n.updated / 1000;
+  const key = [n => -n.updated, n => -n.created, n => shownTitle(n), ord][S.sort];
   a.sort((x, y) => (y.pinned - x.pinned) || (S.sort === 2 ? key(x).localeCompare(key(y), "ko") : key(x) - key(y)));
   return a;
 }
@@ -574,11 +589,37 @@ function renderList() {
     if (!cs.children.length) cs.remove();
     d.onclick = () => openNote(n.id);
     d.oncontextmenu = e => { e.preventDefault(); openNote(n.id, false, true); noteMenu(null, e); };
-    d.draggable = true; d.ondragstart = e => e.dataTransfer.setData("text/km-note", n.id);
+    d.draggable = true; d.ondragstart = e => { e.dataTransfer.setData("text/km-note", n.id); e.dataTransfer.effectAllowed = "move"; S.dragId = n.id; d.classList.add("drag"); };
+    d.ondragend = () => { S.dragId = null; d.classList.remove("drag"); box.querySelectorAll(".dropb,.dropa").forEach(x => x.classList.remove("dropb", "dropa")); };
+    d.ondragover = e => { if (!S.dragId || S.dragId === n.id) return; e.preventDefault(); const after = e.offsetY > d.offsetHeight / 2; d.classList.toggle("dropa", after); d.classList.toggle("dropb", !after); };
+    d.ondragleave = () => d.classList.remove("dropb", "dropa");
+    d.ondrop = e => { if (!S.dragId) return; e.preventDefault(); const after = d.classList.contains("dropa"); d.classList.remove("dropb", "dropa"); reorder(S.dragId, n.id, after); };
     box.appendChild(d);
   }
 }
 function renderAll() { renderTree(); renderList(); renderEditorMeta(); }
+// 끌어서 순서 바꾸기 → 「직접 순서」 로
+function reorder(id, target, after) {
+  const ids = filtered().map(n => n.id).filter(x => x !== id);
+  let i = ids.indexOf(target); if (i < 0) return; ids.splice(after ? i + 1 : i, 0, id);
+  ids.forEach((x, k) => S.order[x] = k * 10);
+  saveOrder();
+  if (S.sort !== 3) { S.sort = 3; LS.set("km_sort", "3"); toast("「직접 순서」 로 바꿨습니다 — 끌어 놓은 순서대로 보입니다"); }
+  renderList();
+}
+// 칸 접기: 사이드바 · 노트 목록
+function applyLayout() {
+  const a = $("app"), wide = innerWidth > 820;
+  a.classList.toggle("hs", wide && S.hideSide); a.classList.toggle("hl", wide && S.hideList);
+  a.style.gridTemplateColumns = wide ? `${S.hideSide ? "0" : "236px"} ${S.hideList ? "0" : "300px"} minmax(0,1fr)` : "";
+  $("fold").classList.toggle("on", S.hideList); $("notes").classList.toggle("compact", S.compact);
+  $("cmpb").classList.toggle("on", S.compact);
+  LS.set("km_layout", JSON.stringify({ s: S.hideSide, l: S.hideList, c: S.compact }));
+}
+function toggleSide() { S.hideSide = !S.hideSide; applyLayout(); }
+function toggleList() { const hide = !S.hideList; S.hideList = hide; S.hideSide = hide; applyLayout(); }
+function toggleCompact() { S.compact = !S.compact; applyLayout(); }
+addEventListener("resize", () => applyLayout());
 function view(v) { document.body.className = "v-" + v; }
 
 // ───────── 편집기
@@ -1059,6 +1100,7 @@ document.addEventListener("click", async e => {
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") { e.preventDefault(); newNote(); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); saveNow().then(syncNow); }
+  if ((e.ctrlKey || e.metaKey) && e.key === "\\") { e.preventDefault(); toggleList(); }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); $("q").focus(); $("q").select(); }
   if (e.key === "F5" && HOST) { e.preventDefault(); syncNow(); }
 });
@@ -1484,6 +1526,10 @@ function welcome() {
   const all = await tx("notes", "readonly", s => s.getAll());
   for (const n of all || []) if (!n.purged) S.notes.set(n.id, n);
   const b = await kvGet("books"); if (b) { S.books = b.books || []; S.booksU = b.u || 0; }
+  const o = await kvGet("order"); if (o) { S.order = o.o || {}; S.orderU = o.u || 0; }
+  S.sort = +(LS.get("km_sort") || 0) % 4;
+  try { const l = JSON.parse(LS.get("km_layout") || "{}"); S.hideSide = !!l.s; S.hideList = !!l.l; S.compact = !!l.c; } catch (e) {}
+  applyLayout();
   S.lastSync = await kvGet("lastSync");
   try { const q = JSON.parse(LS.get("km_quota") || "null"); if (q && (HOST || LS.get("km_linked"))) showQuota(q); } catch (e) {}
   const raw = await kvGet("key"); if (raw) S.key = await crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, true, ["encrypt", "decrypt"]);
