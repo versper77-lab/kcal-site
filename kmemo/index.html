@@ -945,9 +945,9 @@ const askText = (title, label, v) => dialog(`<h3>${title}</h3><label>${label}</l
 const askYes = (title, body) => dialog(`<h3>${title}</h3><p>${body}</p>`, () => true);
 function askPw(create) {
   return dialog(create
-    ? `<h3>동기화 암호 정하기</h3><p>노트 · 그림 · 녹음을 이 암호로 암호화해서 구글 드라이브에 올립니다. 구글도 내용을 못 봅니다. 다른 기기에서도 같은 암호를 넣습니다. <b>잊으면 아무도 열 수 없으니</b> 따로 적어 두세요.</p><label>암호 (8자 이상)</label><input type="password" class="a"><label>한 번 더</label><input type="password" class="b">`
+    ? `<h3>동기화 암호 정하기</h3><p>노트 · 그림 · 녹음을 이 암호로 암호화해서 구글 드라이브에 올립니다. 구글도 내용을 못 봅니다. 다른 기기에서도 같은 암호를 넣습니다. <b>잊으면 아무도 열 수 없으니</b> 따로 적어 두세요.</p><label>암호 (6자 이상 — 숫자만도 됨)</label><input type="password" class="a"><label>한 번 더</label><input type="password" class="b">`
     : `<h3>동기화 암호</h3><p>다른 기기에서 정한 동기화 암호를 넣으세요.</p><label>암호</label><input type="password" class="a">`,
-    d => { const a = d.querySelector(".a").value; if (a.length < 8) return { err: "8자 이상으로 하세요" }; if (create && d.querySelector(".b").value !== a) return { err: "두 암호가 다릅니다" }; return a; });
+    d => { const a = d.querySelector(".a").value; if (a.length < 6) return { err: "6자 이상으로 하세요" }; if (create && d.querySelector(".b").value !== a) return { err: "두 암호가 다릅니다" }; return a; });
 }
 async function openSettings() {
   const st = S.stKind, use = S.driveUse ? (S.driveUse / 1048576).toFixed(1) + " MB" : "—";
